@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+wheels/
+
+# Environment & secrets
+.env
+secrets/
+
+# Database (local only)
+data/trendy.db
+data/trendy.db-wal
+data/trendy.db-shm
+
+# Data inboxes — reálne dáta ostávajú lokálne
+data/ahrefs_inbox/**/*.csv
+data/ahrefs_inbox/**/*.xlsx
+data/gsc_inbox/**/*.csv
+data/clusters/**/*.xlsx
+
+# Streamlit
+.streamlit/
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
