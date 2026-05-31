@@ -4,7 +4,7 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from trendy.db import Candidate
-from app.components.filters import TAG_LABELS, STATUS_LABELS
+from components.filters import TAG_LABELS, STATUS_LABELS
 
 
 def render_candidate_table(

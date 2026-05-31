@@ -28,7 +28,11 @@ try:
     cfg = PORTALS[portal_key]
 
     # ─── Query ─────────────────────────────────────────────────────────────
-    q = db.query(Candidate).filter_by(portal_id=portal.id)
+    # Main list = only topics with verified search volume. Unverified discovery
+    # topics live in the "Témy na overenie hľadanosti" bucket below.
+    q = db.query(Candidate).filter_by(portal_id=portal.id).filter(
+        Candidate.needs_volume.isnot(True)
+    )
 
     if filters["tags"]:
         q = q.filter(Candidate.tag.in_(filters["tags"]))
@@ -64,6 +68,37 @@ try:
     if selected_ids:
         st.divider()
         render_bulk_actions(selected_ids, key_prefix="portal_bulk")
+
+    # ─── Témy na overenie hľadanosti (needs_volume) ──────────────────────────
+    st.divider()
+    st.subheader("🔍 Témy na overenie hľadanosti")
+    st.caption(
+        "Discovery témy bez overenej hľadanosti (volume). Pri ďalšom Ahrefs exporte "
+        "sa spárujú s reálnym volume a presunú medzi plnohodnotných kandidátov."
+    )
+    needs_vol = (
+        db.query(Candidate)
+        .filter_by(portal_id=portal.id)
+        .filter(Candidate.needs_volume.is_(True))
+        .filter(Candidate.status.in_(["new", "seen"]))
+        .order_by(Candidate.growth_score.desc())
+        .all()
+    )
+    if needs_vol:
+        import pandas as pd
+        nv_rows = [{
+            "Kľúčovka": c.keyword,
+            "Zdroj": c.source,
+            "Tag": TAG_LABELS.get(c.tag or "", c.tag or "—"),
+            "Trend M/M %": f"{c.trend_mom_pct:+.0f}%" if c.trend_mom_pct else "—",
+            "GapScore": f"{c.gap_score:.0f}" if c.gap_score is not None else "—",
+            "Klaster": c.cluster or "—",
+            "Status": STATUS_LABELS.get(c.status, c.status),
+        } for c in needs_vol]
+        st.dataframe(pd.DataFrame(nv_rows), use_container_width=True, hide_index=True)
+        st.caption(f"{len(needs_vol)} tém čaká na overenie hľadanosti.")
+    else:
+        st.info("Žiadne témy na overenie — všetci aktívni kandidáti majú overenú hľadanosť.")
 
     # ─── Export ────────────────────────────────────────────────────────────
     st.divider()

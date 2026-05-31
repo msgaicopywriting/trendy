@@ -8,7 +8,7 @@ from typing import Optional
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, DateTime, Date,
-    Boolean, Text, ForeignKey, UniqueConstraint, event,
+    Boolean, Text, ForeignKey, UniqueConstraint, event, inspect, text,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship, Session, sessionmaker
 
@@ -82,6 +82,7 @@ class Candidate(Base):
     kd = Column(Integer)  # keyword difficulty 0-100
     intent = Column(String(64))  # informational / transactional / navigational / commercial
     source = Column(String(128))  # ahrefs_keywords / ahrefs_competitors / ahrefs_content / pytrends
+    needs_volume = Column(Boolean, default=False)  # discovery topic with unverified search volume
 
     # Scoring
     trend_score = Column(Float, default=0.0)
@@ -176,6 +177,20 @@ def init_db(engine=None) -> None:
     """Create all tables. Safe to call multiple times."""
     e = engine or get_engine()
     Base.metadata.create_all(e)
+    _run_migrations(e)
+
+
+def _run_migrations(engine) -> None:
+    """Idempotent lightweight migrations for columns added after initial release."""
+    insp = inspect(engine)
+    if "candidates" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("candidates")}
+    if "needs_volume" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE candidates ADD COLUMN needs_volume BOOLEAN DEFAULT 0"
+            ))
 
 
 def get_session_factory(engine=None):

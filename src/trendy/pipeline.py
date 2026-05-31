@@ -158,10 +158,19 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
             # Cluster assignment
             cluster = row.cluster or clusters.assign_cluster(row.keyword_normalized, portal_key)
 
+            # Effective volume: keep the best known volume so a volume-less discovery
+            # re-fetch never erases a real Ahrefs volume, and a real Ahrefs volume closes
+            # the loop on a needs_volume topic. needs_volume = discovery topic still unverified.
+            is_ahrefs = (row.source or "").startswith("ahrefs")
+            prior_volume = existing.volume if existing else 0
+            effective_volume = max(row.volume, prior_volume or 0)
+            needs_volume = effective_volume == 0 and not is_ahrefs
+            effective_kd = row.kd if row.kd is not None else (existing.kd if existing else None)
+
             # Compute score
             result = compute_score(ScoringInput(
-                volume=row.volume,
-                kd=row.kd,
+                volume=effective_volume,
+                kd=effective_kd,
                 intent=row.intent,
                 gsc_avg_position=gsc_pos,
                 gsc_impressions=0,
@@ -180,6 +189,9 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
             if existing:
                 # Update scoring fields
                 handle_returned_from_cooldown(existing, result.growth_score)
+                existing.volume = effective_volume
+                existing.kd = effective_kd
+                existing.needs_volume = needs_volume
                 existing.trend_score = result.trend_score
                 existing.volume_score = result.volume_score
                 existing.growth_score = result.growth_score
@@ -204,10 +216,11 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
                     keyword_normalized=row.keyword_normalized,
                     parent_topic=row.parent_topic,
                     cluster=cluster,
-                    volume=row.volume,
-                    kd=row.kd,
+                    volume=effective_volume,
+                    kd=effective_kd,
                     intent=row.intent,
                     source=row.source,
+                    needs_volume=needs_volume,
                     trend_score=result.trend_score,
                     volume_score=result.volume_score,
                     growth_score=result.growth_score,
