@@ -1,0 +1,18 @@
+# Runtime dependencies for Streamlit Community Cloud (mirrors pyproject.toml).
+# The app imports `trendy` from src/ via sys.path, so the package itself is not installed here.
+streamlit>=1.45
+pandas>=2.2
+openpyxl>=3.1
+sqlalchemy>=2.0
+alembic>=1.16
+pydantic-settings>=2.9
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.3
+pytrends>=4.9
+apscheduler>=3.11
+python-dotenv>=1.1
+plotly>=6.1
+python-slugify>=8.0
+praw>=7.8.1
+anthropic>=0.104.1
