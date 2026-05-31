@@ -22,8 +22,8 @@ data/ahrefs_inbox/**/*.xlsx
 data/gsc_inbox/**/*.csv
 data/clusters/**/*.xlsx
 
-# Streamlit
-.streamlit/
+# Streamlit — keep theme config, ignore secrets
+.streamlit/secrets.toml
 
 # IDE
 .idea/

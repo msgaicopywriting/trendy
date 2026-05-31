@@ -1,0 +1,23 @@
+.git
+.gitignore
+.venv
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data & secrets — never bake into the image
+data/
+.env
+secrets/
+.streamlit/secrets.toml
+
+# Editor / OS / tooling
+.claude/
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db

@@ -1,0 +1,31 @@
+# Render Blueprint — deploy with one click from the repo (Dashboard → New → Blueprint).
+# Docs: https://render.com/docs/blueprint-spec
+#
+# NOTE: a persistent disk requires a paid plan (the free plan has no disk, so the
+# SQLite DB would reset on every redeploy). Use at least "starter" for real data.
+services:
+  - type: web
+    name: trendy
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /_stcore/health
+    envVars:
+      # Point SQLite at the persistent disk (4 slashes = absolute path).
+      - key: DATABASE_URL
+        value: sqlite:////app/data/trendy.db
+      # Secrets — set these in the Render dashboard (not committed).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: SERPAPI_API_KEY
+        sync: false
+    disk:
+      name: trendy-data
+      mountPath: /app/data
+      sizeGB: 1

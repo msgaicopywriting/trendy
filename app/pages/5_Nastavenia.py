@@ -9,6 +9,9 @@ from trendy.config import settings, PORTALS
 from trendy.db import get_db, PipelineRun
 
 st.set_page_config(page_title="Trendy — Nastavenia", layout="wide")
+from components.branding import apply_branding, render_header
+apply_branding()
+render_header("Nastavenia")
 st.title("⚙️ Nastavenia")
 
 db = get_db()

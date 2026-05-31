@@ -12,6 +12,9 @@ from trendy.config import PORTALS
 from components.filters import portal_selector
 
 st.set_page_config(page_title="Trendy — Pokrytie", layout="wide")
+from components.branding import apply_branding, render_header
+apply_branding()
+render_header("Pokrytie")
 st.title("🗺️ Pokrytie & Gap analysis")
 
 portal_key = portal_selector(key="pokrytie_sel")

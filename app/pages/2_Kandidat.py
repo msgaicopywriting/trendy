@@ -13,6 +13,9 @@ from components.filters import TAG_LABELS, STATUS_LABELS
 from components.status_actions import render_single_actions
 
 st.set_page_config(page_title="Trendy — Kandidát", layout="wide")
+from components.branding import apply_branding, render_header
+apply_branding()
+render_header("Kandidát")
 st.title("🔎 Detail kandidáta")
 
 # Candidate selection

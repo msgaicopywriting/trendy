@@ -11,6 +11,9 @@ from components.filters import STATUS_LABELS, TAG_LABELS, portal_selector
 from components.status_actions import _single_action
 
 st.set_page_config(page_title="Trendy — Pipeline", layout="wide")
+from components.branding import apply_branding, render_header
+apply_branding()
+render_header("Pipeline")
 st.title("📌 Pipeline — Kanban")
 
 portal_key = portal_selector(key="kanban_portal")

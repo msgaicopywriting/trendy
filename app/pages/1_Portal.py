@@ -12,6 +12,9 @@ from components.candidate_table import render_candidate_table
 from components.status_actions import render_bulk_actions
 
 st.set_page_config(page_title="Trendy — Portál", layout="wide")
+from components.branding import apply_branding, render_header
+apply_branding()
+render_header("Portál")
 st.title("📋 Portál — kandidáti")
 
 # Sidebar

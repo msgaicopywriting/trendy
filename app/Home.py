@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import streamlit as st
 from trendy.config import PORTALS, settings
 from trendy.db import get_db, init_db, get_engine
+from components.branding import apply_branding, render_header
 
 st.set_page_config(
     page_title="Trendy — msg portály",
@@ -15,6 +16,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+apply_branding()
 
 # --- Init DB on first run ---
 @st.cache_resource
@@ -47,8 +49,7 @@ st.sidebar.page_link("pages/4_Pipeline.py", label="Pipeline (Kanban)", icon="�
 st.sidebar.page_link("pages/5_Nastavenia.py", label="Nastavenia", icon="⚙️")
 
 # --- Main ---
-st.title("🔍 Trendy — prehľad")
-st.caption(f"Databáza: `{settings.database_url}`")
+render_header("Prehľad", tagline="Trendové témy pre msg-life.sk, msgtester.sk a msgprogramator.sk")
 
 db = get_db()
 
