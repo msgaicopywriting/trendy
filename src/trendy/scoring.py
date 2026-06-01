@@ -148,7 +148,7 @@ def _classify(volume_score: float, growth_score: float, gap_score: float, inp: S
     """
     # Newly discovered: seen for the first time (this run or last 30 days)
     if inp.days_since_first_seen < 30 and inp.source not in ("ahrefs_keywords",):
-        if growth_score > 20 or inp.source in ("pytrends_rising", "rss_claude", "claude_probe", "perplexity_probe"):
+        if growth_score > 20 or inp.source in ("pytrends_rising", "rss_llm", "llm_probe", "perplexity_probe", "rss_claude", "claude_probe"):
             return "newly_discovered"
 
     # Rising: strong recent growth signal

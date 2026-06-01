@@ -1,10 +1,10 @@
 """Labor market source — oficiálne dáta trhu práce (ŠÚSR, ÚPSVR, ISTP).
 
 Scrapuje news / tlačové správy / reportové stránky štátnych inštitúcií, vytiahne
-headlines a cez Claude extrahuje SEO frázy (napr. "najžiadanejšie profesie 2026",
+headlines a cez LLM (Gemini) extrahuje SEO frázy (napr. "najžiadanejšie profesie 2026",
 "miera nezamestnanosti", "mzdy podľa odvetví").
 
-Aktívne len pre msg-life.sk. Bez ANTHROPIC_API_KEY vráti [] (Claude extrakcia).
+Aktívne len pre msg-life.sk. Bez LLM kľúča (GEMINI_API_KEY) vráti [] (graceful).
 
 POZNÁMKA: štátne inštitúcie nemajú čisté API/RSS — scrapujú sa HTML listingy.
 Hĺbkové parsovanie PDF/XLSX reportov (presné čísla) je samostatný follow-up;

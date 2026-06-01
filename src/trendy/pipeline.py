@@ -15,7 +15,7 @@ from trendy.sources.base import CandidateRow
 from trendy.sources import ahrefs, gsc, clusters, trends, sitemap
 from trendy.sources.reddit import fetch_trending as reddit_fetch
 from trendy.sources.rss import fetch_rss_candidates
-from trendy.sources.llm_probe import fetch_claude_probe, fetch_perplexity_probe
+from trendy.sources.llm_probe import fetch_llm_probe, fetch_perplexity_probe
 from trendy.scoring import compute_score, ScoringInput
 from trendy.lifecycle import is_suppressed, apply_lifecycle_filter, handle_returned_from_cooldown
 from slugify import slugify
@@ -71,17 +71,17 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
         # Ahrefs (CSV inbox, falls back gracefully)
         all_candidates.extend(ahrefs.load_inbox(portal_key))
 
-        # GSC rising via Claude LLM
+        # GSC rising via LLM
         all_candidates.extend(gsc.get_rising_candidates_via_llm(portal_key, db, portal))
 
         # Reddit
         all_candidates.extend(reddit_fetch(portal_key))
 
-        # RSS + Claude
+        # RSS + LLM
         all_candidates.extend(fetch_rss_candidates(portal_key))
 
         # LLM probing
-        all_candidates.extend(fetch_claude_probe(portal_key))
+        all_candidates.extend(fetch_llm_probe(portal_key))
         all_candidates.extend(fetch_perplexity_probe(portal_key))
 
         logger.info("Total raw candidates: %d", len(all_candidates))

@@ -1,30 +1,24 @@
-"""LLM probing source — Claude API self-query + optional Perplexity API pre fresh trends."""
+"""LLM probing source — LLM self-query (Gemini) + optional Perplexity API pre fresh trends."""
 from __future__ import annotations
 
-import json
 import logging
 import os
-import re
 from datetime import date
 
 from slugify import slugify
 
 from trendy.config import PORTALS
+from trendy.llm import llm_complete, parse_json_block
 from trendy.sources.base import CandidateRow
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_claude_probe(portal_key: str) -> list[CandidateRow]:
+def fetch_llm_probe(portal_key: str) -> list[CandidateRow]:
     """
-    Ask Claude to suggest trending / emerging topics for portal_key based on
+    Ask the LLM to suggest trending / emerging topics for portal_key based on
     its training knowledge. Best for newly emerging themes not yet in Ahrefs.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.info("ANTHROPIC_API_KEY not set — skipping Claude LLM probe")
-        return []
-
     portal = PORTALS.get(portal_key)
     if not portal:
         return []
@@ -48,37 +42,31 @@ Pre každú tému uveď:
 
 Odpovedaj IBA v JSON: [{{"keyword": "...", "reason": "...", "category": "..."}}]"""
 
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}],
+    text = llm_complete(prompt, max_tokens=4096, json_output=True)
+    items = parse_json_block(text)
+    if isinstance(items, dict):
+        items = items.get("topics") or items.get("keywords") or next(
+            (v for v in items.values() if isinstance(v, list)), []
         )
-
-        text = msg.content[0].text.strip()
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
-        items = json.loads(text)
-
-        candidates = []
-        for item in items:
-            kw = item.get("keyword", "").strip()
-            if not kw:
-                continue
-            candidates.append(CandidateRow(
-                keyword=kw,
-                keyword_normalized=slugify(kw, separator=" ", lowercase=True),
-                source="claude_probe",
-                extra={"reason": item.get("reason"), "category": item.get("category")},
-            ))
-
-        logger.info("Claude probe: %d candidates for %s", len(candidates), portal_key)
-        return candidates
-
-    except Exception as e:
-        logger.error("Claude probe failed for %s: %s", portal_key, e)
+    if not isinstance(items, list):
         return []
+
+    candidates = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kw = (item.get("keyword") or "").strip()
+        if not kw:
+            continue
+        candidates.append(CandidateRow(
+            keyword=kw,
+            keyword_normalized=slugify(kw, separator=" ", lowercase=True),
+            source="llm_probe",
+            extra={"reason": item.get("reason"), "category": item.get("category")},
+        ))
+
+    logger.info("LLM probe: %d candidates for %s", len(candidates), portal_key)
+    return candidates
 
 
 def fetch_perplexity_probe(portal_key: str) -> list[CandidateRow]:
@@ -112,13 +100,16 @@ def fetch_perplexity_probe(portal_key: str) -> list[CandidateRow]:
             timeout=30,
         )
         r.raise_for_status()
-        text = r.json()["choices"][0]["message"]["content"].strip()
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
-        items = json.loads(text)
+        text = r.json()["choices"][0]["message"]["content"]
+        items = parse_json_block(text)
+        if not isinstance(items, list):
+            return []
 
         candidates = []
         for item in items:
-            kw = item.get("keyword", "").strip()
+            if not isinstance(item, dict):
+                continue
+            kw = (item.get("keyword") or "").strip()
             if not kw:
                 continue
             candidates.append(CandidateRow(

@@ -23,7 +23,7 @@ def mock_sources(monkeypatch):
     monkeypatch.setattr("trendy.pipeline.ahrefs.load_inbox", lambda *a, **k: list(feed["ahrefs"]))
     monkeypatch.setattr("trendy.pipeline.reddit_fetch", lambda *a, **k: list(feed["reddit"]))
     monkeypatch.setattr("trendy.pipeline.fetch_rss_candidates", lambda *a, **k: [])
-    monkeypatch.setattr("trendy.pipeline.fetch_claude_probe", lambda *a, **k: [])
+    monkeypatch.setattr("trendy.pipeline.fetch_llm_probe", lambda *a, **k: [])
     monkeypatch.setattr("trendy.pipeline.fetch_perplexity_probe", lambda *a, **k: [])
     monkeypatch.setattr("trendy.pipeline.trends.fetch_trend_data", lambda *a, **k: {})
     monkeypatch.setattr("trendy.pipeline.trends.fetch_rising_queries", lambda *a, **k: [])

@@ -1,9 +1,9 @@
 """Profesia.sk source — najautoritatívnejší SK kariérny/HR zdroj.
 
 Scrapuje Profesia magazín (kariérne články) + reporty trhu práce (Index trhu
-práce, platové reporty). Z headlineov cez Claude extrahuje SEO frázy.
+práce, platové reporty). Z headlineov cez LLM (Gemini) extrahuje SEO frázy.
 
-Aktívne len pre msg-life.sk. Bez ANTHROPIC_API_KEY vráti [] (graceful).
+Aktívne len pre msg-life.sk. Bez LLM kľúča (GEMINI_API_KEY) vráti [] (graceful).
 """
 from __future__ import annotations
 

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from slugify import slugify
 
+from trendy.llm import llm_available, llm_complete
 from trendy.sources.base import CandidateRow
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ PORTAL_SUBREDDITS: dict[str, list[str]] = {
 MIN_SCORE = 10
 
 # Max titles to send to Claude for phrase extraction in one batch
-_CLAUDE_BATCH = 60
+_LLM_BATCH = 60
 
 
 def fetch_trending(portal_key: str, limit_per_sub: int = 25) -> list[CandidateRow]:
@@ -132,7 +133,7 @@ def fetch_trending(portal_key: str, limit_per_sub: int = 25) -> list[CandidateRo
 
     # --- Extract SEO keyword phrases via Claude ---
     titles = [p["title"] for p in raw_posts]
-    extracted_phrases = _extract_phrases_via_claude(titles, portal_key)
+    extracted_phrases = _extract_phrases_via_llm(titles, portal_key)
 
     # Build CandidateRow per extracted phrase (retain subreddit meta from best-matching post)
     candidates: list[CandidateRow] = []
@@ -159,20 +160,13 @@ def fetch_trending(portal_key: str, limit_per_sub: int = 25) -> list[CandidateRo
     return candidates
 
 
-def _extract_phrases_via_claude(titles: list[str], portal_key: str) -> list[str]:
+def _extract_phrases_via_llm(titles: list[str], portal_key: str) -> list[str]:
     """
-    Pošle batch titulkov na Claude a vyžiada extrakciu SEO keyword fráz.
-    Rovnaký prístup ako rss._summarize_via_claude — vracia len frázy, nie vety.
+    Pošle batch titulkov na LLM a vyžiada extrakciu SEO keyword fráz.
+    Rovnaký prístup ako rss._summarize_via_llm — vracia len frázy, nie vety.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        logger.info("ANTHROPIC_API_KEY not set — Reddit phrases returned as raw titles")
-        return _fallback_clean(titles)
-
-    try:
-        import anthropic
-    except ImportError:
-        logger.warning("anthropic not installed")
+    if not llm_available():
+        logger.info("LLM kľúč nie je nastavený — Reddit frázy vrátené ako raw tituly")
         return _fallback_clean(titles)
 
     portal_context = {
@@ -180,7 +174,7 @@ def _extract_phrases_via_claude(titles: list[str], portal_key: str) -> list[str]
         "msgprogramator": "programovanie, webový vývoj, AI nástroje pre developerov, Python, JavaScript, kariéra v IT",
     }.get(portal_key, "IT a technológie")
 
-    batch = titles[:_CLAUDE_BATCH]
+    batch = titles[:_LLM_BATCH]
     titles_text = "\n".join(f"- {t}" for t in batch)
 
     prompt = f"""Si SEO špecialista pre slovenský IT portál zameraný na: {portal_context}.
@@ -200,19 +194,12 @@ Pravidlá:
 Reddit titulky:
 {titles_text}"""
 
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=800,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = resp.content[0].text.strip()
-        phrases = [line.strip("- •").strip() for line in text.splitlines() if line.strip()]
-        return [p for p in phrases if 3 <= len(p) <= 80]
-    except Exception as e:
-        logger.warning("Claude phrase extraction failed: %s — using raw titles", e)
+    text = llm_complete(prompt, max_tokens=800)
+    if not text:
+        logger.warning("LLM fráza-extrakcia zlyhala — používam raw tituly")
         return _fallback_clean(titles)
+    phrases = [line.strip("- •").strip() for line in text.splitlines() if line.strip()]
+    return [p for p in phrases if 3 <= len(p) <= 80]
 
 
 def _fallback_clean(titles: list[str]) -> list[str]:

@@ -1,8 +1,7 @@
-"""RSS/Feedly source — parser feedov + Claude API summarization tém."""
+"""RSS/Feedly source — parser feedov + LLM summarization tém (Gemini)."""
 from __future__ import annotations
 
 import logging
-import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -13,6 +12,7 @@ from urllib.parse import urlparse
 import requests
 from slugify import slugify
 
+from trendy.llm import llm_available, llm_complete, parse_json_block
 from trendy.sources.base import CandidateRow
 
 logger = logging.getLogger(__name__)
@@ -68,10 +68,9 @@ def fetch_rss_candidates(portal_key: str) -> list[CandidateRow]:
     if not raw_titles:
         return []
 
-    # Try Claude API summarization to extract clean topic keywords
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if api_key:
-        return _summarize_via_claude(raw_titles, portal_key, api_key)
+    # Try LLM summarization to extract clean topic keywords
+    if llm_available():
+        return _summarize_via_llm(raw_titles, portal_key)
     else:
         # Fallback: use titles directly as candidates
         return [
@@ -154,24 +153,20 @@ def _clean_rss_title(title: str) -> str:
     return title
 
 
-def _summarize_via_claude(items: list[dict], portal_key: str, api_key: str) -> list[CandidateRow]:
+def _summarize_via_llm(items: list[dict], portal_key: str) -> list[CandidateRow]:
     """
-    Send batch of RSS titles to Claude API to extract clean searchable topics.
-    Claude filters noise, deduplicates similar themes, returns keyword-style topics.
+    Send batch of RSS titles to the LLM to extract clean searchable topics.
+    The LLM filters noise, deduplicates similar themes, returns keyword-style topics.
     """
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+    titles_text = "\n".join(f"- {item['title']}" for item in items[:80])
 
-        titles_text = "\n".join(f"- {item['title']}" for item in items[:80])
+    portal_context = {
+        "msg-life": "HR, employer branding, kariéra, insurtech, poisťovníctvo, Slovak market",
+        "msgtester": "software testing, QA, automatizácia testov, test engineering",
+        "msgprogramator": "programovanie, software development, tech kariéra",
+    }.get(portal_key, "tech a business")
 
-        portal_context = {
-            "msg-life": "HR, employer branding, kariéra, insurtech, poisťovníctvo, Slovak market",
-            "msgtester": "software testing, QA, automatizácia testov, test engineering",
-            "msgprogramator": "programovanie, software development, tech kariéra",
-        }.get(portal_key, "tech a business")
-
-        prompt = f"""Si SEO analytik pre portál zameraný na: {portal_context}.
+    prompt = f"""Si SEO analytik pre portál zameraný na: {portal_context}.
 
 Nasledujúce sú nadpisy článkov z RSS feedov za posledných 14 dní:
 
@@ -185,42 +180,36 @@ Nasledujúce sú nadpisy článkov z RSS feedov za posledných 14 dní:
 Odpovedaj v JSON: [{{"keyword": "...", "source_titles": ["...", "..."]}}]
 Iba JSON, žiadny iný text."""
 
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1500,
-            messages=[{"role": "user", "content": prompt}],
-        )
+    text = llm_complete(prompt, max_tokens=1500, json_output=True)
+    parsed = parse_json_block(text)
 
-        import json
-        text = msg.content[0].text.strip()
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
-        parsed = json.loads(text)
-
+    if isinstance(parsed, list):
         candidates = []
         for item in parsed:
-            kw = item.get("keyword", "").strip()
+            if not isinstance(item, dict):
+                continue
+            kw = (item.get("keyword") or "").strip()
             if not kw:
                 continue
             candidates.append(CandidateRow(
                 keyword=kw,
                 keyword_normalized=slugify(kw, separator=" ", lowercase=True),
-                source="rss_claude",
+                source="rss_llm",
                 extra={"source_titles": item.get("source_titles", [])},
             ))
 
-        logger.info("RSS Claude summary: %d topic keywords for %s", len(candidates), portal_key)
+        logger.info("RSS LLM summary: %d topic keywords for %s", len(candidates), portal_key)
         return candidates
 
-    except Exception as e:
-        logger.error("RSS Claude summarization failed: %s", e)
-        # Fallback to raw titles
-        return [
-            CandidateRow(
-                keyword=item["title"],
-                keyword_normalized=slugify(item["title"], separator=" ", lowercase=True),
-                source="rss",
-                extra={"feed_url": item.get("feed_url")},
-            )
-            for item in items
-            if item.get("title")
-        ]
+    # Parsing failed → fallback to raw titles
+    logger.error("RSS LLM summarization returned no parseable JSON — using raw titles")
+    return [
+        CandidateRow(
+            keyword=item["title"],
+            keyword_normalized=slugify(item["title"], separator=" ", lowercase=True),
+            source="rss",
+            extra={"feed_url": item.get("feed_url")},
+        )
+        for item in items
+        if item.get("title")
+    ]

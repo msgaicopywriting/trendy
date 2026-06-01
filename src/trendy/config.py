@@ -3,10 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# Načítaj .env do os.environ — API kľúče (GEMINI_API_KEY, REDDIT_*, PERPLEXITY_*)
+# sa čítajú cez os.environ.get(), nie cez pydantic Settings. Bez tohto by .env
+# kľúče lokálne nefungovali. Na Streamlit Cloud .env neexistuje (load_dotenv no-op)
+# a kľúče prídu zo secrets → env.
+load_dotenv(ROOT / ".env")
 
 
 class Settings(BaseSettings):

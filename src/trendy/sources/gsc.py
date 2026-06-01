@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from trendy.db import GscQuery, Portal
 from trendy.config import settings
+from trendy.llm import llm_available, llm_complete, parse_json_block
 from trendy.sources.base import CandidateRow
 
 logger = logging.getLogger(__name__)
@@ -163,15 +164,13 @@ def get_covered_queries(portal: Portal, db: Session, top_n_days: int = 90) -> di
 
 def get_rising_candidates_via_llm(portal_key: str, db: Session, portal: Portal) -> list[CandidateRow]:
     """
-    Use Claude API to identify rising / trending queries from GSC data.
+    Use the LLM to identify rising / trending queries from GSC data.
     Compares recent 30-day data vs prior 30-day data and surfaces growing queries.
 
-    Falls back to empty list if ANTHROPIC_API_KEY not set.
+    Falls back to empty list if no LLM key is configured.
     """
-    import os
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.info("ANTHROPIC_API_KEY not set — skipping LLM GSC rising analysis")
+    if not llm_available():
+        logger.info("LLM kľúč nie je nastavený — preskakujem LLM GSC rising analýzu")
         return []
 
     # Build comparison dataset
@@ -235,33 +234,23 @@ Nasledujúce queries zaznamenali nárast impressií za posledných 30 dní oprot
 Odpovedaj v JSON formáte: [{{"keyword": "...", "reason": "...", "potential": "high|medium|low"}}]
 Iba JSON, žiadny iný text."""
 
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        import json
-        text = msg.content[0].text.strip()
-        # Strip markdown code fences if present
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
-        items = json.loads(text)
-
-        candidates = []
-        for item in items:
-            kw = item.get("keyword", "").strip()
-            if not kw:
-                continue
-            candidates.append(CandidateRow(
-                keyword=kw,
-                keyword_normalized=slugify(kw, separator=" ", lowercase=True),
-                source="gsc_rising_llm",
-                extra={"reason": item.get("reason"), "potential": item.get("potential")},
-            ))
-        logger.info("GSC LLM analysis found %d rising candidates for %s", len(candidates), portal_key)
-        return candidates
-    except Exception as e:
-        logger.error("GSC LLM rising analysis failed: %s", e)
+    text = llm_complete(prompt, max_tokens=1024, json_output=True)
+    items = parse_json_block(text)
+    if not isinstance(items, list):
         return []
+
+    candidates = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kw = (item.get("keyword") or "").strip()
+        if not kw:
+            continue
+        candidates.append(CandidateRow(
+            keyword=kw,
+            keyword_normalized=slugify(kw, separator=" ", lowercase=True),
+            source="gsc_rising_llm",
+            extra={"reason": item.get("reason"), "potential": item.get("potential")},
+        ))
+    logger.info("GSC LLM analysis found %d rising candidates for %s", len(candidates), portal_key)
+    return candidates

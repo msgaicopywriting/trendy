@@ -15,7 +15,7 @@ services:
       - key: DATABASE_URL
         value: sqlite:////app/data/trendy.db
       # Secrets — set these in the Render dashboard (not committed).
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
       - key: REDDIT_CLIENT_ID
         sync: false
