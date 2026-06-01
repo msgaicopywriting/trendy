@@ -176,6 +176,47 @@ Nové a aktualizované témy nájdeš v **Portál → kandidáti** (ľavé menu)
 > 🔁 Tento postup opakuj každý mesiac — pipeline porovná nové dáta s predchádzajúcimi behmi a automaticky aplikuje cooldown na témy, ktoré už boli spracované.
 """)
 
+    with st.expander("📡 Odkiaľ pochádzajú témy — zdroje dát"):
+        st.markdown("""
+Nástroj nekombinuje jediný zdroj — témy vznikajú zložením **viacerých signálov**. Každý zdroj
+pokrýva inú časť otázky *„o čom písať"*:
+
+#### 1️⃣ Hľadanosť & obtiažnosť *(kvantitatívne — koľko ľudí to reálne hľadá)*
+| Zdroj | Čo prináša |
+|---|---|
+| **Ahrefs Keywords Explorer** (CSV) | Reálny mesačný objem hľadanosti + obtiažnosť (KD). **Jediný zdroj so skutočným volume.** |
+| **Google Search Console** (CSV) | Dopyty, na ktorých sa portál už zobrazuje — reálne čísla z vlastnej prevádzky. |
+| **Google Trends** (pytrends) | Krivka záujmu v čase — medzimesačný a medziročný rast + „rising" dopyty k seed kľúčovkám. |
+
+#### 2️⃣ Objavovanie nových / emerging tém *(kvalitatívne — čo začína byť horúce)*
+| Zdroj | Čo prináša |
+|---|---|
+| **LLM (Google Gemini)** | Návrhy trendových a emerging tém z poznatkov modelu + content-gap príležitosti. |
+| **Perplexity** *(voliteľné)* | Web-grounded čerstvé trendy v reálnom čase (ak je nastavený `PERPLEXITY_API_KEY`). |
+| **Reddit** | Trending diskusie v relevantných komunitách. |
+| **RSS** | Odborné spravodajské a blogové zdroje; kľúčové frázy z titulkov extrahuje LLM. |
+
+#### 3️⃣ Pokrytie & content gap *(čo už máme — aby sme nenavrhovali duplicity)*
+| Zdroj | Čo prináša |
+|---|---|
+| **Sitemap portálu** | Inventár už publikovaných článkov / tém. |
+| **GSC pokrytie** | Na ktorých dopytoch už rankujeme a na akej pozícii. |
+
+---
+
+🔍 **Témy bez overenej hľadanosti:** zdroje *Reddit, RSS, LLM, Perplexity* vrátia len **názov témy**,
+nie objem hľadanosti (ten má len Ahrefs). Takéto témy sa zbierajú v sekcii
+**„Témy na overenie hľadanosti"** na stránke *Portál* — keď ich neskôr potvrdí Ahrefs export,
+automaticky sa presunú medzi hlavných kandidátov a prepočíta sa skóre.
+
+📊 **Výsledné poradie (TrendScore)** je vážený súčet štyroch zložiek — *Volume, Growth (rast),
+Gap (pokrytie)* a *Opportunity (KD + intent)*. Váhy sa dajú upraviť v **Nastavenia → Scoring**.
+
+☁️ **Online verzia (Streamlit Cloud):** Ahrefs/GSC/cluster CSV sú lokálne súbory, na serveri sú
+inboxy prázdne. Online preto bežia len **sieťové zdroje** — RSS, Google Trends, Sitemap, LLM (Gemini)
+a Reddit (ak sú nastavené prístupy). Pre plný obraz vrátane objemu hľadanosti spúšťaj pipeline lokálne s Ahrefs/GSC exportmi.
+""")
+
 
     selected_portal = st.selectbox(
         "Vyber portál pre refresh:",
