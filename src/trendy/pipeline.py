@@ -23,6 +23,45 @@ from slugify import slugify
 logger = logging.getLogger(__name__)
 
 
+def merge_candidates(rows: list[CandidateRow]) -> list[CandidateRow]:
+    """
+    Merge candidate rows sharing the same keyword_normalized across sources.
+    Cross-source agreement is the strongest trend signal (surfaced later as
+    source_count in scoring), so all contributing sources are preserved in
+    extra["sources"] rather than letting the last-seen row silently win.
+
+    Ahrefs rows take priority as the primary data (real volume/KD), otherwise
+    the first-seen row's fields win.
+    """
+    groups: dict[str, list[CandidateRow]] = {}
+    for row in rows:
+        if not row.keyword_normalized:
+            continue
+        groups.setdefault(row.keyword_normalized, []).append(row)
+
+    merged_rows = []
+    for key, group in groups.items():
+        ordered = sorted(group, key=lambda r: 0 if (r.source or "").startswith("ahrefs") else 1)
+        primary = ordered[0]
+
+        merged = CandidateRow(
+            keyword=primary.keyword,
+            keyword_normalized=key,
+            parent_topic=next((r.parent_topic for r in ordered if r.parent_topic), None),
+            volume=max(r.volume for r in group),
+            kd=next((r.kd for r in ordered if r.kd is not None), None),
+            intent=next((r.intent for r in ordered if r.intent), None),
+            source=primary.source,
+            cluster=next((r.cluster for r in ordered if r.cluster), None),
+        )
+        for r in reversed(ordered):  # primary last so its extra keys win on overwrite
+            merged.extra.update(r.extra)
+        merged.extra["sources"] = [r.source for r in group]
+        merged_rows.append(merged)
+
+    return merged_rows
+
+
 def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
     """
     Execute full 7-step pipeline for one portal.
@@ -84,39 +123,53 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
         all_candidates.extend(fetch_llm_probe(portal_key))
         all_candidates.extend(fetch_perplexity_probe(portal_key))
 
-        logger.info("Total raw candidates: %d", len(all_candidates))
+        # Google Trends "Trending Now" RSS — breakout SK searches from the last ~24-48h
+        all_candidates.extend(trends.fetch_trending_now(portal_key))
 
-        # ─── Krok 4: Google Trends signál ─────────────────────────────────
-        logger.info("[4/7] Google Trends enrichment")
-        # Only fetch trends for candidates that pass volume threshold
-        threshold = cfg.volume_threshold
-        enrichable = [c for c in all_candidates if c.volume >= threshold]
-
-        trend_data: dict = {}
-        if enrichable:
-            keywords_to_probe = list({c.keyword for c in enrichable})[:50]
-            try:
-                trend_data = trends.fetch_trend_data(keywords_to_probe)
-            except Exception as e:
-                logger.warning("pytrends fetch failed (non-fatal): %s", e)
-
-        # Also fetch rising queries from seed keywords
+        # Google Trends rising queries from seed keywords (limit to 5 seeds to avoid rate limits)
         rising_from_trends: list[CandidateRow] = []
-        for seed in cfg.seed_keywords[:5]:  # limit to 5 seeds to avoid rate limits
+        for seed in cfg.seed_keywords[:5]:
             try:
                 rising_from_trends.extend(trends.fetch_rising_queries(seed))
             except Exception as e:
                 logger.warning("pytrends rising for '%s' failed: %s", seed, e)
-
         all_candidates.extend(rising_from_trends)
         logger.info("pytrends added %d rising candidates", len(rising_from_trends))
+
+        logger.info("Total raw candidates: %d", len(all_candidates))
+
+        # Merge duplicates across sources — cross-source agreement is the strongest
+        # trend signal, and ahrefs (real volume/KD) takes priority in the merged row.
+        merged_candidates = merge_candidates(all_candidates)
+        logger.info("Merged into %d unique candidates", len(merged_candidates))
+
+        # ─── Krok 4: Google Trends signál ─────────────────────────────────
+        logger.info("[4/7] Google Trends enrichment")
+        threshold = cfg.volume_threshold
+        enrichable = [c for c in merged_candidates if c.volume >= threshold]
+        # Discovery topics (volume still unverified) deserve a trend check too —
+        # prioritize the ones multiple independent sources agree on.
+        discovery = sorted(
+            (c for c in merged_candidates if c.volume == 0),
+            key=lambda c: len(c.extra.get("sources", [])),
+            reverse=True,
+        )[:20]
+
+        trend_data: dict = {}
+        to_probe = enrichable + discovery
+        if to_probe:
+            keywords_to_probe = list(dict.fromkeys(c.keyword for c in to_probe))[:50]
+            try:
+                trend_data = trends.fetch_trend_data(keywords_to_probe)
+            except Exception as e:
+                logger.warning("pytrends fetch failed (non-fatal): %s", e)
 
         # ─── Krok 5: Scoring ───────────────────────────────────────────────
         logger.info("[5/7] Scoring")
         candidates_found = 0
         candidates_suppressed = 0
 
-        for row in all_candidates:
+        for row in merged_candidates:
             if not row.keyword or not row.keyword_normalized:
                 continue
 
@@ -167,6 +220,10 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
             needs_volume = effective_volume == 0 and not is_ahrefs
             effective_kd = row.kd if row.kd is not None else (existing.kd if existing else None)
 
+            # Cross-source agreement is the strongest trend signal
+            sources_list = row.extra.get("sources") or [row.source]
+            source_count = len(sources_list)
+
             # Compute score
             result = compute_score(ScoringInput(
                 volume=effective_volume,
@@ -184,6 +241,7 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
                 ),
                 portal_cfg=cfg,
                 source=row.source,
+                source_count=source_count,
             ))
 
             if existing:
@@ -209,7 +267,8 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
                 elif existing.status == "new":
                     existing.status = "seen"
             else:
-                # New candidate
+                # New candidate — record every contributing source, not just the primary one
+                combined_source = "+".join(dict.fromkeys(s for s in sources_list if s))[:128]
                 new_c = Candidate(
                     portal_id=portal.id,
                     keyword=row.keyword,
@@ -219,7 +278,7 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
                     volume=effective_volume,
                     kd=effective_kd,
                     intent=row.intent,
-                    source=row.source,
+                    source=combined_source or row.source,
                     needs_volume=needs_volume,
                     trend_score=result.trend_score,
                     volume_score=result.volume_score,

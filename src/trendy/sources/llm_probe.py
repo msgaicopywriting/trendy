@@ -30,6 +30,9 @@ def fetch_llm_probe(portal_key: str) -> list[CandidateRow]:
 
 Dnes je {today.strftime('%B %Y')}.
 
+Vyhľadaj na webe aktuálne diskusie, správy a trendy z posledných týždňov, aby si zistil,
+čo je práve teraz relevantné — nespoliehaj sa len na svoje tréningové dáta.
+
 Úloha: Navrh 15-20 trendových tém/kľúčových fráz ktoré sú relevantné pre náš portál a ktoré:
 1. Zaznamenávajú rast záujmu (nové technológie, zmeny v legislatíve, emerging best practices)
 2. Ešte nie sú bežne pokryté na slovenských portáloch (content gap príležitosť)
@@ -40,9 +43,12 @@ Pre každú tému uveď:
 - reason: prečo je táto téma trendová práve teraz
 - category: emerging_tech / legislative / best_practice / career / tool / other
 
-Odpovedaj IBA v JSON: [{{"keyword": "...", "reason": "...", "category": "..."}}]"""
+Odpovedaj IBA v JSON, bez markdown formátovania: [{{"keyword": "...", "reason": "...", "category": "..."}}]"""
 
-    text = llm_complete(prompt, max_tokens=4096, json_output=True)
+    text = llm_complete(prompt, max_tokens=4096, grounded=True)
+    if text is None:
+        # Grounding zlyhal/nedostupný (napr. starší model) — fallback na plain JSON mode
+        text = llm_complete(prompt, max_tokens=4096, json_output=True)
     items = parse_json_block(text)
     if isinstance(items, dict):
         items = items.get("topics") or items.get("keywords") or next(

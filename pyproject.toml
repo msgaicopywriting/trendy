@@ -13,13 +13,13 @@ dependencies = [
     "requests>=2.32",
     "beautifulsoup4>=4.12",
     "lxml>=5.3",
-    "pytrends>=4.9",
     "apscheduler>=3.11",
     "python-dotenv>=1.1",
     "plotly>=6.1",
     "python-slugify>=8.0",
     "praw>=7.8.1",
     "google-genai>=1.0",
+    "trendspy>=0.1.6",
 ]
 
 [project.optional-dependencies]

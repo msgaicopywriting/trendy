@@ -40,6 +40,7 @@ def llm_complete(
     *,
     max_tokens: int = 2048,
     json_output: bool = False,
+    grounded: bool = False,
     model: str | None = None,
 ) -> str | None:
     """
@@ -48,6 +49,10 @@ def llm_complete(
 
     `json_output=True` požiada Gemini o čistý JSON (response_mime_type) — vhodné
     pre štruktúrované odpovede. Volajúci to ešte prežene cez `parse_json_block()`.
+
+    `grounded=True` zapne Google Search grounding tool — Gemini dostane reálne
+    webové výsledky namiesto spoliehania sa na tréningové dáta. Nekompatibilné
+    s `json_output` (Gemini API obmedzenie) — JSON treba vyžiadať v prompte.
     """
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
@@ -65,7 +70,9 @@ def llm_complete(
         client = genai.Client(api_key=api_key)
         model_name = model or DEFAULT_MODEL
         config_kwargs: dict = {"max_output_tokens": max_tokens}
-        if json_output:
+        if grounded:
+            config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+        elif json_output:
             config_kwargs["response_mime_type"] = "application/json"
         # Vypni "thinking" pre 2.5 modely — inak thinking tokeny zožerú output
         # budget a odrežú (truncate) JSON. Bezpečné pre gemini-2.5-*.

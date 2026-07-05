@@ -2,7 +2,7 @@
 import pytest
 from datetime import date, datetime, timedelta, timezone
 
-from trendy.scoring import compute_score, ScoringInput, _volume_score, _growth_score, _gap_score
+from trendy.scoring import compute_score, ScoringInput, _volume_score, _growth_score, _gap_score, _saturate
 from trendy.lifecycle import is_suppressed, change_status, REJECTION_REASONS
 from trendy.db import Candidate, Portal, CandidateStatusHistory, PipelineRun
 
@@ -27,11 +27,22 @@ def test_volume_score_log_scale():
 
 def test_growth_score_positive():
     score = _growth_score(80.0, 50.0)
-    assert score > 60
+    assert score > 40
 
 
 def test_growth_score_negative_clamps_to_zero():
     assert _growth_score(-50.0, -30.0) == 0.0
+
+
+def test_saturate_monotonic_no_hard_cap():
+    # No cliff at 100%: growth keeps climbing (but saturates) well past the old cap
+    assert _saturate(100) < _saturate(500) < _saturate(5000) < 100.0
+
+
+def test_source_count_bonus_increases_score():
+    base = compute_score(ScoringInput(volume=500, trend_mom_pct=0.0, source_count=1))
+    boosted = compute_score(ScoringInput(volume=500, trend_mom_pct=0.0, source_count=3))
+    assert boosted.trend_score > base.trend_score
 
 
 def test_gap_score_full_gap():

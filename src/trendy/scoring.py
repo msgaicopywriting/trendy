@@ -26,6 +26,7 @@ class ScoringInput:
     days_since_first_seen: int = 0         # 0 = newly discovered this run
     portal_cfg: PortalConfig | None = None
     source: str = "unknown"
+    source_count: int = 1                   # koľko nezávislých zdrojov tému potvrdilo
 
 
 @dataclass
@@ -56,6 +57,7 @@ def compute_score(inp: ScoringInput) -> ScoringResult:
         + w3 * gap_score
         + w4 * opportunity_score
     )
+    trend_score += min(15.0, 5.0 * (inp.source_count - 1))
     trend_score = round(min(100.0, max(0.0, trend_score)), 1)
 
     tag = _classify(volume_score, growth_score, gap_score, inp)
@@ -80,12 +82,17 @@ def _volume_score(volume: int) -> float:
 def _growth_score(mom_pct: float, yoy_pct: float) -> float:
     """
     Growth score based on month-over-month and year-over-year trend.
-    >50% M/M growth → 100. Negative growth → 0.
-    Weighted 60% MoM (more recent) + 40% YoY (more stable).
+    Saturating curve (no hard cap): 30% → 30, 100% → 59, 500% → 88, 5000% → 99.
+    Negative growth → 0. Weighted 60% MoM (more recent) + 40% YoY (more stable).
     """
-    mom_capped = max(0.0, min(mom_pct, 100.0))
-    yoy_capped = max(0.0, min(yoy_pct, 100.0))
-    return mom_capped * 0.6 + yoy_capped * 0.4
+    return _saturate(mom_pct) * 0.6 + _saturate(yoy_pct) * 0.4
+
+
+def _saturate(pct: float) -> float:
+    """f(pct) = 100 * pct / (pct + 70) for pct > 0, else 0. Monotonic, asymptotic to 100."""
+    if pct <= 0:
+        return 0.0
+    return 100.0 * pct / (pct + 70.0)
 
 
 def _gap_score(gsc_avg_position: float | None, has_published_article: bool) -> float:
@@ -148,11 +155,16 @@ def _classify(volume_score: float, growth_score: float, gap_score: float, inp: S
     """
     # Newly discovered: seen for the first time (this run or last 30 days)
     if inp.days_since_first_seen < 30 and inp.source not in ("ahrefs_keywords",):
-        if growth_score > 20 or inp.source in ("pytrends_rising", "rss_llm", "llm_probe", "perplexity_probe", "rss_claude", "claude_probe"):
+        if (
+            growth_score > 20
+            or inp.source_count >= 2
+            or inp.source in ("pytrends_rising", "rss_llm", "llm_probe", "perplexity_probe", "rss_claude", "claude_probe")
+        ):
             return "newly_discovered"
 
-    # Rising: strong recent growth signal
-    if growth_score > 60 and volume_score > 20:
+    # Rising: strong recent growth signal (threshold recalibrated for saturating curve —
+    # growth_score > 45 now corresponds to ~57% growth, matching the old >60/cap-100 behavior)
+    if growth_score > 45 and volume_score > 20:
         return "rising"
 
     # Refresh: we have coverage but ranking weak AND there's growth

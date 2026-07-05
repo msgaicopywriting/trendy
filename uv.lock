@@ -1388,20 +1388,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pytrends"
-version = "4.9.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "lxml" },
-    { name = "pandas" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/65/a242fd8fbe98c11bd51f0b57d4752905396a99c42c91c3213c3f44e741c8/pytrends-4.9.2.tar.gz", hash = "sha256:691c6e36b1aeaa4754f3692bdbad0dff446e528ffb052eee2e7f139aaa2c6989", size = 247162, upload-time = "2023-04-13T23:17:21.313Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/ba/7a24a3723c790000faf880505ff1cc46f4d29f46dd353037938a070c4d23/pytrends-4.9.2-py3-none-any.whl", hash = "sha256:d7d0ee956be2f6e3e9fc09376c4615efb9347039d6d1f46e6f4326a5b7a14f67", size = 15352, upload-time = "2023-04-13T23:17:18.88Z" },
-]
-
-[[package]]
 name = "referencing"
 version = "0.37.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1664,6 +1650,21 @@ wheels = [
 ]
 
 [[package]]
+name = "trendspy"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cc/46/d96f675c9bd302a93df7c9e8f1d26bce93198b0735dfa8c940a08e84355d/trendspy-0.1.6.tar.gz", hash = "sha256:27d83f79b8d961ae4ed4d05b1207e9afc2b14976a08de7af9013bf6b553c9536", size = 241171, upload-time = "2024-12-25T12:05:16.782Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/f4/25c2e75a20493d6b94bd4d1ff6adb3591f59f712698be615cbb42db8aafc/trendspy-0.1.6-py3-none-any.whl", hash = "sha256:74795fee0028e27e139007c9b805e705f6fc1a90c7cc3c38112cbb3264837cbf", size = 27943, upload-time = "2024-12-25T12:05:13.355Z" },
+]
+
+[[package]]
 name = "trendy"
 version = "0.1.0"
 source = { editable = "." }
@@ -1680,10 +1681,10 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "python-slugify" },
-    { name = "pytrends" },
     { name = "requests" },
     { name = "sqlalchemy" },
     { name = "streamlit" },
+    { name = "trendspy" },
 ]
 
 [package.optional-dependencies]
@@ -1714,10 +1715,10 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.1" },
     { name = "python-dotenv", specifier = ">=1.1" },
     { name = "python-slugify", specifier = ">=8.0" },
-    { name = "pytrends", specifier = ">=4.9" },
     { name = "requests", specifier = ">=2.32" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "streamlit", specifier = ">=1.45" },
+    { name = "trendspy", specifier = ">=0.1.6" },
 ]
 provides-extras = ["dev"]
 
