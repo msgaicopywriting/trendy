@@ -42,8 +42,8 @@ st.sidebar.title("🔍 Trendy")
 st.sidebar.caption("Trendové témy pre msg portály")
 st.sidebar.divider()
 st.sidebar.page_link("Home.py", label="🏠 Dashboard", icon="🏠")
-st.sidebar.page_link("pages/1_Portal.py", label="Portál — kandidáti", icon="📋")
-st.sidebar.page_link("pages/2_Kandidat.py", label="Detail kandidáta", icon="🔎")
+st.sidebar.page_link("pages/1_Portál.py", label="Portál — kandidáti", icon="📋")
+st.sidebar.page_link("pages/2_Kandidát.py", label="Detail kandidáta", icon="🔎")
 st.sidebar.page_link("pages/3_Pokrytie.py", label="Pokrytie & Gap", icon="🗺️")
 st.sidebar.page_link("pages/4_Pipeline.py", label="Pipeline (Kanban)", icon="📌")
 st.sidebar.page_link("pages/5_Nastavenia.py", label="Nastavenia", icon="⚙️")
@@ -103,7 +103,7 @@ try:
                 if last_run:
                     st.caption(f"Posledný beh: {last_run.started_at.strftime('%d.%m.%Y %H:%M')}")
                 else:
-                    st.caption("Pipeline ešte nebehal")
+                    st.caption("Pipeline ešte neprebehol")
             else:
                 st.warning("Portál nie je inicializovaný v DB")
 
@@ -218,14 +218,30 @@ a Reddit (ak sú nastavené prístupy). Pre plný obraz vrátane objemu hľadano
 """)
 
 
+    # Shared key with portal_selector on other pages — the choice here carries
+    # over to Portál/Kanban. Re-pin so Streamlit keeps it across page switches.
+    if "portal_sel" in st.session_state:
+        st.session_state["portal_sel"] = st.session_state["portal_sel"]
     selected_portal = st.selectbox(
         "Vyber portál pre refresh:",
         options=portal_keys,
         format_func=lambda k: PORTALS[k].name,
+        key="portal_sel",
     )
 
     if st.button("▶️ Spustiť pipeline", type="primary"):
-        st.warning("⚙️ Pipeline nie je ešte implementovaný (Phase 2). Skontroluj späť čoskoro.")
+        with st.spinner(f"Pipeline beží pre {PORTALS[selected_portal].name}..."):
+            try:
+                from trendy.pipeline import run_pipeline
+                summary = run_pipeline(selected_portal)
+                st.success(
+                    f"Hotovo — {summary['candidates_found']} nových tém, "
+                    f"{summary['candidates_suppressed']} suppressed. "
+                    f"Výsledky nájdeš v **Portál — kandidáti**."
+                )
+                st.rerun()
+            except Exception as e:
+                st.error(f"Pipeline zlyhala: {e}")
 
 finally:
     db.close()

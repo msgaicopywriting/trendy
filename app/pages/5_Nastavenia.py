@@ -79,16 +79,70 @@ try:
     # ─── Portály ────────────────────────────────────────────────────────────
     with tab2:
         st.subheader("Seed kľúčovky per portál")
-        st.caption("Používajú sa ako základ pre Ahrefs Keywords Explorer export a pytrends rising queries.")
+        st.caption(
+            "Používajú sa ako základ pre Ahrefs Keywords Explorer export a Google Trends "
+            "rising queries. Automaticky odvodené z GSC queries, publikovaných článkov a "
+            "akceptovaných tém — vlastné (manuálne) seedy pridané nižšie prežijú každý refresh."
+        )
+        from trendy.db import Portal as DbPortal, Seed
+        from trendy import seeds as seeds_mod
+
+        _ORIGIN_BADGE = {"manual": "🟢 manual", "auto": "🔵 auto", "bootstrap": "⚪ bootstrap"}
+
         for pkey, pcfg in PORTALS.items():
+            db_portal = db.query(DbPortal).filter_by(key=pkey).first()
             with st.expander(f"{pcfg.name}"):
-                st.markdown("**Seed kľúčovky:**")
-                for kw in pcfg.seed_keywords:
-                    st.markdown(f"- `{kw}`")
+                if not db_portal:
+                    st.info("Portál ešte nie je inicializovaný v DB — spusti pipeline aspoň raz.")
+                    continue
+
+                seeds_mod.get_active_seeds(db_portal, db)  # bootstrap on first view if empty
+                all_seeds = (
+                    db.query(Seed)
+                    .filter_by(portal_id=db_portal.id)
+                    .order_by(Seed.keyword)
+                    .all()
+                )
+                all_seeds.sort(key=lambda s: seeds_mod._ORIGIN_PRIORITY.get(s.origin, 3))
+
+                for s in all_seeds:
+                    c1, c2, c3 = st.columns([4, 1, 1])
+                    with c1:
+                        st.markdown(f"`{s.keyword}` {_ORIGIN_BADGE.get(s.origin, s.origin)}")
+                        if s.source_evidence:
+                            st.caption(f"↳ {s.source_evidence}")
+                    with c2:
+                        new_active = st.checkbox("aktívny", value=s.active, key=f"seed_active_{s.id}")
+                        if new_active != s.active:
+                            seeds_mod.set_seed_active(s.id, new_active, db)
+                            st.rerun()
+                    with c3:
+                        if st.button("🗑️", key=f"seed_del_{s.id}"):
+                            seeds_mod.remove_seed(s.id, db)
+                            st.rerun()
+
+                st.divider()
+                col_add1, col_add2 = st.columns([4, 1])
+                with col_add1:
+                    new_kw = st.text_input("Pridať vlastný seed", key=f"new_seed_{pkey}", label_visibility="collapsed", placeholder="Pridať vlastný seed...")
+                with col_add2:
+                    if st.button("➕ Pridať", key=f"add_seed_{pkey}") and new_kw.strip():
+                        seeds_mod.add_manual_seed(db_portal, new_kw.strip(), db)
+                        st.rerun()
+
+                if st.button("🔄 Pregenerovať automatické seedy", key=f"refresh_seeds_{pkey}"):
+                    with st.spinner("Analyzujem GSC / sitemap / akceptované témy..."):
+                        result = seeds_mod.refresh_auto_seeds(db_portal, db)
+                    if result["status"] == "ok":
+                        st.success(f"Pridaných {result['added']} nových auto seedov.")
+                    else:
+                        st.warning(f"Preskočené: {result['reason']}")
+                    st.rerun()
+
                 st.markdown("**Konkurenti (Ahrefs Site Explorer):**")
                 for d in pcfg.competitor_domains:
                     st.markdown(f"- `{d}`")
-                st.caption("Seed kľúčovky a konkurenti sa editujú v `src/trendy/config.py`.")
+                st.caption("Konkurenti sú biznis rozhodnutie, nie dátová otázka — editujú sa v `src/trendy/config.py`.")
 
         st.divider()
         st.subheader("Priečinky inboxov")
@@ -148,7 +202,7 @@ Pipeline sa spúšťa automaticky ak je Streamlit app spustená. Pre produkčné
             } for r, pkey in runs]
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else:
-            st.info("Pipeline ešte nebehal.")
+            st.info("Pipeline ešte neprebehol.")
 
         if st.button("▶️ Spustiť pipeline pre všetky portály"):
             with st.spinner("Beží..."):

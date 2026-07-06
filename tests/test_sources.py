@@ -173,6 +173,24 @@ def test_assign_cluster_exact(tmp_path, monkeypatch):
     assert result == "Python"
 
 
+# ────────── RSS tolerant parser ──────────
+
+def test_parse_xml_tolerant_valid():
+    from trendy.sources.rss import _parse_xml_tolerant
+    xml = b'<?xml version="1.0"?><rss><channel><item><title>Test</title></item></channel></rss>'
+    root = _parse_xml_tolerant(xml)
+    assert root.find(".//title").text == "Test"
+
+
+def test_parse_xml_tolerant_recovers_malformed():
+    from trendy.sources.rss import _parse_xml_tolerant
+    # Unescaped ampersand — stdlib ElementTree raises ParseError, lxml recover fixes it
+    xml = b'<?xml version="1.0"?><rss><channel><item><title>QA & Testing</title></item></channel></rss>'
+    root = _parse_xml_tolerant(xml)
+    titles = [el.text for el in root.iter("title")]
+    assert any(t and "Testing" in t for t in titles)
+
+
 # ────────── Sitemap utils ──────────
 
 def test_normalize_slug():

@@ -47,8 +47,9 @@ class Settings(BaseSettings):
     cooldown_published_days: int = 365
     snooze_default_days: int = 30
 
-    # Google Trends
-    pytrends_rate_limit_seconds: float = 3.0
+    # Google Trends — 6 s medzi requestami; pri 3 s Google konzistentne vracia 429
+    # (trendspy sám odporúča request_delay=6.0)
+    pytrends_rate_limit_seconds: float = 6.0
     pytrends_language: str = "sk"
     pytrends_geo: str = "SK"
 

@@ -16,7 +16,7 @@ apply_branding()
 render_header("Pipeline")
 st.title("📌 Pipeline — Kanban")
 
-portal_key = portal_selector(key="kanban_portal")
+portal_key = portal_selector()
 db = get_db()
 
 try:
@@ -59,7 +59,7 @@ try:
                 st.caption(f"Klaster: {c.cluster or '—'}")
             if st.button("Otvoriť", key=f"open_{c.id}", use_container_width=True):
                 st.query_params["id"] = str(c.id)
-                st.switch_page("pages/2_Kandidat.py")
+                st.switch_page("pages/2_Kandidát.py")
 
     # Main kanban board
     st.subheader("Aktívne stavy")
@@ -101,7 +101,7 @@ try:
                     with c2b:
                         if st.button("🔎", key=f"view_{c.id}"):
                             st.query_params["id"] = str(c.id)
-                            st.switch_page("pages/2_Kandidat.py")
+                            st.switch_page("pages/2_Kandidát.py")
 
 finally:
     db.close()

@@ -31,7 +31,9 @@ PORTAL_FEEDS: dict[str, list[str]] = {
     ],
     "msgtester": [
         "https://www.ministryoftesting.com/feed",
-        "https://stickyminds.com/rss.xml",
+        "https://www.softwaretestingmagazine.com/feed/",
+        "https://testguild.com/feed/",
+        "https://www.satisfice.com/blog/feed",
         "https://automationintesting.com/feed.xml",
         "https://testingpodcast.com/feed/",
     ],
@@ -93,7 +95,7 @@ def _parse_feed(feed_url: str) -> list[dict]:
     except Exception as e:
         raise RuntimeError(f"Feed fetch failed: {e}") from e
 
-    root = ET.fromstring(r.content)
+    root = _parse_xml_tolerant(r.content)
     ns = {"atom": "http://www.w3.org/2005/Atom"}
 
     items = []
@@ -145,6 +147,25 @@ def _parse_feed(feed_url: str) -> list[dict]:
             items.append({"title": _clean_rss_title(title), "url": url, "feed_url": feed_url})
 
     return items
+
+
+def _parse_xml_tolerant(content: bytes) -> ET.Element:
+    """
+    Parse feed XML, recovering from minor malformations (unescaped entities,
+    stray control chars) via lxml's recover mode — real-world feeds are often
+    slightly broken (e.g. ministryoftesting.com) and dropping the whole feed
+    over one bad character loses a source.
+    """
+    try:
+        return ET.fromstring(content)
+    except ET.ParseError:
+        from lxml import etree as lxml_etree
+        lxml_root = lxml_etree.fromstring(content, parser=lxml_etree.XMLParser(recover=True))
+        if lxml_root is None:
+            raise
+        # Re-serialize the recovered tree and hand it to stdlib ElementTree so the
+        # rest of the module keeps working with a single element API.
+        return ET.fromstring(lxml_etree.tostring(lxml_root))
 
 
 def _clean_rss_title(title: str) -> str:

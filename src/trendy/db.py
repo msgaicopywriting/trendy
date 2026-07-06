@@ -151,6 +151,26 @@ class PipelineRun(Base):
     portal = relationship("Portal", back_populates="runs")
 
 
+class Seed(Base):
+    """Seed keywords per portal — basis for Google Trends rising queries and
+    the Ahrefs Keywords Explorer template. Auto-derived from portal data
+    (GSC queries, published articles, accepted candidates) with room for
+    manually-added seeds that survive every auto-refresh."""
+    __tablename__ = "seeds"
+    __table_args__ = (UniqueConstraint("portal_id", "keyword_normalized"),)
+
+    id = Column(Integer, primary_key=True)
+    portal_id = Column(Integer, ForeignKey("portals.id"), nullable=False)
+    keyword = Column(String(256), nullable=False)
+    keyword_normalized = Column(String(256), nullable=False)
+    origin = Column(String(16), nullable=False)  # auto | manual | bootstrap
+    active = Column(Boolean, default=True)
+    source_evidence = Column(Text)  # JSON: what the seed was derived from
+    created_at = Column(DateTime, default=_utcnow)
+
+    portal = relationship("Portal")
+
+
 class SuppressedCandidate(Base):
     """Candidates suppressed by cooldown in a specific run (for the suppressed panel)."""
     __tablename__ = "suppressed_candidates"

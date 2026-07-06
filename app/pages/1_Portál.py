@@ -18,7 +18,7 @@ render_header("Portál")
 st.title("📋 Portál — kandidáti")
 
 # Sidebar
-portal_key = portal_selector(key="portal_page_sel")
+portal_key = portal_selector()
 filters = candidate_filters(key_prefix="portal")
 
 db = get_db()
@@ -57,10 +57,25 @@ try:
         Candidate.status.in_(["new", "seen"])
     ).count()
 
+    needs_vol_count = (
+        db.query(Candidate)
+        .filter_by(portal_id=portal.id)
+        .filter(Candidate.needs_volume.is_(True))
+        .filter(Candidate.status.in_(["new", "seen"]))
+        .count()
+    )
+
     m1, m2, m3 = st.columns(3)
     m1.metric("Zobrazených", len(candidates))
     m2.metric("Aktívnych (new+seen)", new_seen)
     m3.metric("Spolu v DB", total)
+
+    if not candidates and needs_vol_count > 0:
+        st.info(
+            f"ℹ️ Hlavná tabuľka je prázdna, ale **{needs_vol_count} discovery tém** čaká "
+            f"v sekcii **Témy na overenie hľadanosti** nižšie. Hľadanosť (volume) sa im "
+            f"doplní pri ďalšom Ahrefs exporte — hodnotiť (prijať/zamietnuť) ich môžeš už teraz."
+        )
 
     st.divider()
 
@@ -87,9 +102,11 @@ try:
         .order_by(Candidate.growth_score.desc())
         .all()
     )
+    nv_selected_ids: list[int] = []
     if needs_vol:
         import pandas as pd
         nv_rows = [{
+            "ID": c.id,
             "Kľúčovka": c.keyword,
             "Zdroj": c.source,
             "Tag": TAG_LABELS.get(c.tag or "", c.tag or "—"),
@@ -98,8 +115,21 @@ try:
             "Klaster": c.cluster or "—",
             "Status": STATUS_LABELS.get(c.status, c.status),
         } for c in needs_vol]
-        st.dataframe(pd.DataFrame(nv_rows), use_container_width=True, hide_index=True)
+        nv_df = pd.DataFrame(nv_rows)
+        nv_selection = st.dataframe(
+            nv_df.drop(columns=["ID"]),
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="multi-row",
+            key="portal_nv_df",
+        )
+        nv_indices = nv_selection.selection.rows if hasattr(nv_selection, "selection") else []
+        nv_selected_ids = [nv_rows[i]["ID"] for i in nv_indices]
         st.caption(f"{len(needs_vol)} tém čaká na overenie hľadanosti.")
+
+        if nv_selected_ids:
+            render_bulk_actions(nv_selected_ids, key_prefix="portal_nv_bulk")
     else:
         st.info("Žiadne témy na overenie — všetci aktívni kandidáti majú overenú hľadanosť.")
 
@@ -108,10 +138,12 @@ try:
     col_exp, col_refresh = st.columns([3, 1])
 
     with col_exp:
-        if st.button("⬇️ Export vybraných do XLSX", disabled=not selected_ids):
+        all_selected = selected_ids + nv_selected_ids
+        if st.button("⬇️ Export vybraných do XLSX", disabled=not all_selected):
             import pandas as pd
             import io
             sel = [c for c in candidates if c.id in selected_ids]
+            sel += [c for c in needs_vol if c.id in nv_selected_ids]
             rows = [{
                 "keyword": c.keyword, "volume": c.volume, "kd": c.kd,
                 "tag": c.tag, "trend_score": c.trend_score,
@@ -152,7 +184,7 @@ try:
             else:
                 st.info("Žiadne suppressed témy v poslednom behu.")
         else:
-            st.info("Pipeline ešte nebehal — žiadne suppressed dáta.")
+            st.info("Pipeline ešte neprebehol — žiadne suppressed dáta.")
 
 finally:
     db.close()

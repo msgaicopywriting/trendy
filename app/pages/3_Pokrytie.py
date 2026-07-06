@@ -17,7 +17,7 @@ apply_branding()
 render_header("Pokrytie")
 st.title("🗺️ Pokrytie & Gap analysis")
 
-portal_key = portal_selector(key="pokrytie_sel")
+portal_key = portal_selector()
 db = get_db()
 
 try:

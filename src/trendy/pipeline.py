@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from trendy.config import PORTALS, settings
 from trendy.db import (
-    get_db, Portal, Candidate, PipelineRun, PublishedArticle,
+    get_db, Portal, Candidate, PipelineRun, PublishedArticle, Seed,
 )
 from trendy.sources.base import CandidateRow
 from trendy.sources import ahrefs, gsc, clusters, trends, sitemap
@@ -18,6 +18,7 @@ from trendy.sources.rss import fetch_rss_candidates
 from trendy.sources.llm_probe import fetch_llm_probe, fetch_perplexity_probe
 from trendy.scoring import compute_score, ScoringInput
 from trendy.lifecycle import is_suppressed, apply_lifecycle_filter, handle_returned_from_cooldown
+from trendy import seeds
 from slugify import slugify
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,26 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
 
         # ─── Krok 3: Kandidátsky pool (všetky zdroje) ─────────────────────
         logger.info("[3/7] Fetching candidates from all sources")
+
+        # Keep auto seeds fresh (derived from real GSC/sitemap/candidate data) —
+        # non-fatal like every other source; falls back to existing/bootstrap seeds.
+        latest_auto_seed = (
+            db.query(Seed)
+            .filter_by(portal_id=portal.id, origin="auto")
+            .order_by(Seed.created_at.desc())
+            .first()
+        )
+        seed_refresh_due = (
+            latest_auto_seed is None
+            or (datetime.now(timezone.utc) - latest_auto_seed.created_at).days >= 30
+        )
+        if seed_refresh_due:
+            try:
+                seed_result = seeds.refresh_auto_seeds(portal, db)
+                logger.info("Seed refresh: %s", seed_result)
+            except Exception as e:
+                logger.warning("Seed refresh failed (non-fatal): %s", e)
+
         all_candidates: list[CandidateRow] = []
 
         # Ahrefs (CSV inbox, falls back gracefully)
@@ -126,15 +147,18 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
         # Google Trends "Trending Now" RSS — breakout SK searches from the last ~24-48h
         all_candidates.extend(trends.fetch_trending_now(portal_key))
 
-        # Google Trends rising queries from seed keywords (limit to 5 seeds to avoid rate limits)
+        # Google Trends rising queries from active seeds — rotates through all seeds
+        # across successive runs since Google Trends allows only ~5 keywords per request.
+        all_seeds = seeds.get_active_seeds(portal, db)
+        run_seeds = seeds.select_seeds_for_run(all_seeds, run_index=run_id)
         rising_from_trends: list[CandidateRow] = []
-        for seed in cfg.seed_keywords[:5]:
+        for seed_kw in run_seeds:
             try:
-                rising_from_trends.extend(trends.fetch_rising_queries(seed))
+                rising_from_trends.extend(trends.fetch_rising_queries(seed_kw))
             except Exception as e:
-                logger.warning("pytrends rising for '%s' failed: %s", seed, e)
+                logger.warning("Google Trends rising for '%s' failed: %s", seed_kw, e)
         all_candidates.extend(rising_from_trends)
-        logger.info("pytrends added %d rising candidates", len(rising_from_trends))
+        logger.info("Google Trends rising added %d candidates (seeds used: %s)", len(rising_from_trends), run_seeds)
 
         logger.info("Total raw candidates: %d", len(all_candidates))
 
@@ -158,7 +182,9 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
         trend_data: dict = {}
         to_probe = enrichable + discovery
         if to_probe:
-            keywords_to_probe = list(dict.fromkeys(c.keyword for c in to_probe))[:50]
+            # Cap at 25 (5 batches) — beyond that Google's per-IP quota kicks in
+            # and later batches just burn time on 429s.
+            keywords_to_probe = list(dict.fromkeys(c.keyword for c in to_probe))[:25]
             try:
                 trend_data = trends.fetch_trend_data(keywords_to_probe)
             except Exception as e:

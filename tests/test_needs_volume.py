@@ -28,6 +28,7 @@ def mock_sources(monkeypatch):
     monkeypatch.setattr("trendy.pipeline.trends.fetch_trend_data", lambda *a, **k: {})
     monkeypatch.setattr("trendy.pipeline.trends.fetch_rising_queries", lambda *a, **k: [])
     monkeypatch.setattr("trendy.pipeline.trends.fetch_trending_now", lambda *a, **k: [])
+    monkeypatch.setattr("trendy.pipeline.seeds.refresh_auto_seeds", lambda *a, **k: {"status": "skipped"})
     monkeypatch.setattr("trendy.pipeline.clusters.assign_cluster", lambda *a, **k: None)
     return feed
 

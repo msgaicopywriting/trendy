@@ -24,7 +24,14 @@ STATUS_LABELS = {
 
 
 def portal_selector(label: str = "Portál", key: str = "portal_sel") -> str:
+    """Portal selectbox with a key shared across all pages, so the chosen
+    portal follows the user when navigating (Home → Portál → Kanban...)."""
     options = list(PORTALS.keys())
+    # Re-pin the widget value as app state — Streamlit drops widget keys for
+    # widgets not rendered on the current page, which would reset the selection
+    # on every page switch.
+    if key in st.session_state:
+        st.session_state[key] = st.session_state[key]
     return st.sidebar.selectbox(
         label,
         options=options,
