@@ -17,6 +17,11 @@ apply_branding()
 render_header("Portál")
 st.title("📋 Portál — kandidáti")
 
+# Výsledok behu pipeline z predchádzajúceho rerunu (persistovaný cez session_state)
+_pending_run_msg = st.session_state.pop("portal_pipeline_result", None)
+if _pending_run_msg:
+    st.success(_pending_run_msg)
+
 # Sidebar
 portal_key = portal_selector()
 filters = candidate_filters(key_prefix="portal")
@@ -76,6 +81,20 @@ try:
             f"v sekcii **Témy na overenie hľadanosti** nižšie. Hľadanosť (volume) sa im "
             f"doplní pri ďalšom Ahrefs exporte — hodnotiť (prijať/zamietnuť) ich môžeš už teraz."
         )
+
+    # Všetko posúdené → naveď na ďalšiu fázu workflowu namiesto prázdnej tabuľky
+    if total > 0 and new_seen == 0:
+        accepted_count = db.query(Candidate).filter_by(portal_id=portal.id, status="accepted").count()
+        if accepted_count:
+            st.success(
+                f"✅ Všetky témy tohto portálu sú posúdené — **{accepted_count} prijatých** "
+                f"čaká na spracovanie (brief → článok)."
+            )
+            st.page_link("pages/4_Pipeline.py", label=f"👉 Otvoriť Kanban ({accepted_count})", icon="📌")
+        else:
+            st.success(
+                "✅ Všetky témy tohto portálu sú posúdené. Nové pribudnú pri ďalšom behu pipeline."
+            )
 
     st.divider()
 
@@ -160,7 +179,12 @@ try:
                 try:
                     from trendy.pipeline import run_pipeline
                     summary = run_pipeline(portal_key)
-                    st.success(f"Hotovo — {summary['candidates_found']} nových, {summary['candidates_suppressed']} suppressed")
+                    # st.rerun() by zmazal správu vykreslenú v tomto behu —
+                    # ulož do session_state a ukáž po rerune (vzor z Nastavení).
+                    st.session_state["portal_pipeline_result"] = (
+                        f"✅ Hotovo — {summary['candidates_found']} nových tém, "
+                        f"{summary['candidates_suppressed']} suppressed. Posúď ich v tabuľkách vyššie."
+                    )
                     st.rerun()
                 except Exception as e:
                     st.error(f"Pipeline zlyhala: {e}")

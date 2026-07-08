@@ -55,6 +55,19 @@ db = get_db()
 
 try:
     from trendy.db import Candidate, PipelineRun, Portal
+    from components.next_action import render_next_action
+
+    # Result of a pipeline run from the previous rerun (st.rerun() would wipe
+    # a message rendered in the same run — same pattern as in Nastavenia).
+    pending_run = st.session_state.pop("home_pipeline_result", None)
+    if pending_run:
+        st.success(
+            f"✅ Pipeline pre **{pending_run['portal_name']}** dobehol — "
+            f"{pending_run['found']} nových tém, {pending_run['suppressed']} suppressed."
+        )
+
+    render_next_action(db)
+    st.divider()
 
     col1, col2, col3 = st.columns(3)
     portal_keys = list(PORTALS.keys())
@@ -234,11 +247,14 @@ a Reddit (ak sú nastavené prístupy). Pre plný obraz vrátane objemu hľadano
             try:
                 from trendy.pipeline import run_pipeline
                 summary = run_pipeline(selected_portal)
-                st.success(
-                    f"Hotovo — {summary['candidates_found']} nových tém, "
-                    f"{summary['candidates_suppressed']} suppressed. "
-                    f"Výsledky nájdeš v **Portál — kandidáti**."
-                )
+                # Persist across the rerun — shown at the top of the page,
+                # right above the "Ďalší krok" banner that tells the user
+                # what to do with the fresh candidates.
+                st.session_state["home_pipeline_result"] = {
+                    "portal_name": PORTALS[selected_portal].name,
+                    "found": summary["candidates_found"],
+                    "suppressed": summary["candidates_suppressed"],
+                }
                 st.rerun()
             except Exception as e:
                 st.error(f"Pipeline zlyhala: {e}")
