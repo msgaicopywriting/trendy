@@ -100,7 +100,9 @@ def render_next_action(db: Session) -> None:
         )
         st.page_link("pages/4_Pipeline.py", label=f"👉 Otvoriť Kanban ({total_accepted})", icon="📌")
     else:
+        from trendy.scheduler import next_scheduled_run_date
         st.info(
-            "Všetko je spracované ✅ — nové témy pribudnú pri ďalšom behu pipeline "
-            "(mesačný rytmus), alebo nahraj čerstvé Ahrefs/GSC exporty a spusti beh hneď."
+            f"Všetko je spracované ✅ — ďalší mesačný beh je odporúčaný "
+            f"**{next_scheduled_run_date().strftime('%d.%m.%Y')}**, alebo nahraj "
+            f"čerstvé Ahrefs/GSC exporty a spusti beh hneď."
         )

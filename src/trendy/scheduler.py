@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -10,6 +12,19 @@ from trendy.config import settings, PORTALS
 logger = logging.getLogger(__name__)
 
 _scheduler: BackgroundScheduler | None = None
+
+
+def next_scheduled_run_date(today: date | None = None) -> date:
+    """Dátum najbližšieho odporúčaného mesačného behu podľa nastavenia
+    plánovača (Nastavenia → Scheduler). Slúži na zobrazenie v UI — samotný
+    APScheduler beh závisí od toho, či je appka práve hore."""
+    today = today or date.today()
+    day = min(settings.scheduler_cron_day, 28)  # 28 = bezpečné aj pre február
+    if today.day < day:
+        return date(today.year, today.month, day)
+    if today.month == 12:
+        return date(today.year + 1, 1, day)
+    return date(today.year, today.month + 1, day)
 
 
 def _run_all_portals():

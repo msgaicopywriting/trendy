@@ -40,16 +40,42 @@ def render_candidate_table(
 
     df = pd.DataFrame(rows)
 
-    # Render with st.dataframe + selection
+    # Render with st.dataframe + selection. Every metric column carries a
+    # tooltip saying where the number comes from — hover the column header.
     selection = st.dataframe(
         df.drop(columns=["ID"]),
         use_container_width=True,
         hide_index=True,
         column_config={
-            "TrendScore": st.column_config.ProgressColumn(
-                "TrendScore", min_value=0, max_value=100, format="%.0f"
+            "Tag": st.column_config.TextColumn(
+                "Tag",
+                help="Typ príležitosti: 🚀 Rising = rastúci záujem · ✨ Newly discovered = novoobjavená téma · 🎯 Gap = nepokrytá téma · ♻️ Refresh = aktualizovať existujúci článok",
             ),
-            "Volume": st.column_config.NumberColumn("Volume", format="%d"),
+            "🔁": st.column_config.TextColumn(
+                "🔁", help="Téma sa vrátila z cooldownu (bola už raz zamietnutá/publikovaná a znovu rastie)",
+            ),
+            "Volume": st.column_config.NumberColumn(
+                "Volume", format="%d",
+                help="Mesačná hľadanosť na Slovensku — z Ahrefs exportu (jediný zdroj skutočného objemu)",
+            ),
+            "KD": st.column_config.TextColumn(
+                "KD", help="Keyword Difficulty 0–100 z Ahrefs — čím nižšie, tým ľahšie sa dá rankovať",
+            ),
+            "Trend M/M %": st.column_config.TextColumn(
+                "Trend M/M %",
+                help="Medzimesačný rast záujmu z Google Trends (priemer posledných 4 týždňov vs. predchádzajúce 4 týždne)",
+            ),
+            "GapScore": st.column_config.TextColumn(
+                "GapScore",
+                help="0–100 z GSC + sitemapy: 100 = žiadny článok ani ranking (najväčšia príležitosť), 0 = už rankujeme v top 10",
+            ),
+            "TrendScore": st.column_config.ProgressColumn(
+                "TrendScore", min_value=0, max_value=100, format="%.0f",
+                help="Celkové skóre = vážený súčet: hľadanosť (Ahrefs) + rast (Google Trends) + medzera v pokrytí (GSC/sitemap) + šanca uspieť (KD + intent). Váhy: Nastavenia → Scoring",
+            ),
+            "Klaster": st.column_config.TextColumn(
+                "Klaster", help="Tematický klaster z cluster mapy (data/clusters) alebo z Ahrefs parent topic",
+            ),
         },
         on_select="rerun",
         selection_mode="multi-row",

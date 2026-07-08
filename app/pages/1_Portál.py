@@ -98,6 +98,20 @@ try:
 
     st.divider()
 
+    with st.expander("ℹ️ Odkiaľ pochádzajú čísla v tabuľkách"):
+        st.markdown("""
+| Číslo | Zdroj | Poznámka |
+|---|---|---|
+| **Volume** | Ahrefs export | Jediný zdroj skutočnej mesačnej hľadanosti. Bez exportu je téma v sekcii „na overenie". |
+| **KD** | Ahrefs export | Keyword Difficulty 0–100 — nižšie = ľahšie rankovať. |
+| **Trend M/M %** | Google Trends | Priemer posledných 4 týždňov vs. predchádzajúce 4 týždne. |
+| **GapScore** | GSC export + sitemap portálu | 100 = tému nepokrývame vôbec; 0 = už rankujeme v top 10. |
+| **TrendScore** | vypočítané | Vážený súčet štyroch zložiek (volume + rast + gap + KD/intent). Váhy v *Nastavenia → Scoring*. |
+| **Zdroj** (discovery) | LLM / RSS / Reddit / Trends | Tieto zdroje prinášajú len názov témy — čísla sa doplnia po Ahrefs exporte. |
+
+💡 Podržaním kurzora nad hlavičkou stĺpca sa zobrazí to isté vysvetlenie priamo v tabuľke.
+""")
+
     # ─── Candidate table ────────────────────────────────────────────────────
     selected_ids = render_candidate_table(candidates, key_prefix="portal_tbl")
 
@@ -139,6 +153,18 @@ try:
             nv_df.drop(columns=["ID"]),
             use_container_width=True,
             hide_index=True,
+            column_config={
+                "Zdroj": st.column_config.TextColumn(
+                    "Zdroj",
+                    help="Odkiaľ téma prišla: llm_probe = návrh AI (Gemini + Google Search) · rss_llm = z RSS článkov · reddit = trending diskusie · pytrends_rising = Google Trends rising · gsc_rising_llm = rastúce dopyty z GSC · trends_now = breakout vyhľadávania",
+                ),
+                "Trend M/M %": st.column_config.TextColumn(
+                    "Trend M/M %", help="Medzimesačný rast záujmu z Google Trends (ak bola téma zmeraná)",
+                ),
+                "GapScore": st.column_config.TextColumn(
+                    "GapScore", help="0–100: 100 = tému vôbec nepokrývame (najväčšia príležitosť)",
+                ),
+            },
             on_select="rerun",
             selection_mode="multi-row",
             key="portal_nv_df",

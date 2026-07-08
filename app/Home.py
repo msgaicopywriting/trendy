@@ -113,10 +113,15 @@ try:
                     .order_by(PipelineRun.started_at.desc())
                     .first()
                 )
+                from trendy.scheduler import next_scheduled_run_date
+                next_run = next_scheduled_run_date().strftime("%d.%m.%Y")
                 if last_run:
-                    st.caption(f"Posledný beh: {last_run.started_at.strftime('%d.%m.%Y %H:%M')}")
+                    st.caption(
+                        f"Posledný beh: {last_run.started_at.strftime('%d.%m.%Y %H:%M')} · "
+                        f"ďalší odporúčaný: {next_run}"
+                    )
                 else:
-                    st.caption("Pipeline ešte neprebehol")
+                    st.caption(f"Pipeline ešte neprebehol · odporúčaný beh: {next_run}")
             else:
                 st.warning("Portál nie je inicializovaný v DB")
 
