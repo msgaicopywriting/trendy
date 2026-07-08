@@ -123,10 +123,10 @@ try:
     st.divider()
     st.subheader("Manuálny refresh")
     st.info(
-        "📥 **Workflow pre mesačný refresh:**\n"
-        "1. Exportuj z Ahrefs Keywords Explorer a ulož CSV do `data/ahrefs_inbox/<portal>/`\n"
-        "2. Exportuj z GSC (Performance → Queries → 90 dní) a ulož CSV do `data/gsc_inbox/<portal>/`\n"
-        "3. Klikni **Spustiť pipeline** nižšie"
+        "📥 **Mesačný refresh v 3 krokoch** (všetko nižšie na tejto stránke):\n"
+        "1. **Vyber portál**\n"
+        "2. **Nahraj exporty** — Ahrefs (hľadanosť) a GSC (vlastná návštevnosť); pri každom poli je návod, odkiaľ export stiahnuť\n"
+        "3. Klikni **Spustiť pipeline** — dáta sa spracujú a témy nájdeš v *Portál — kandidáti*"
     )
 
     with st.expander("📖 Mesačný workflow — postup krok za krokom"):
@@ -231,31 +231,48 @@ a Reddit (ak sú nastavené prístupy). Pre plný obraz vrátane objemu hľadano
 """)
 
 
+    # ─── Refresh v 3 krokoch ─────────────────────────────────────────────────
+    # Inboxy sú priečinky na serveri — na Streamlit Cloude sa do nich inak
+    # nedá nič dostať. Bez uploadu by inštrukcia "nahraj exporty" nemala kam viesť.
+    st.markdown("### 1️⃣ Vyber portál")
     # Shared key with portal_selector on other pages — the choice here carries
     # over to Portál/Kanban. Re-pin so Streamlit keeps it across page switches.
     if "portal_sel" in st.session_state:
         st.session_state["portal_sel"] = st.session_state["portal_sel"]
     selected_portal = st.selectbox(
-        "Vyber portál pre refresh:",
+        "Portál, pre ktorý nahrávaš exporty a spúšťaš pipeline:",
         options=portal_keys,
         format_func=lambda k: PORTALS[k].name,
         key="portal_sel",
     )
+    sel_cfg = PORTALS[selected_portal]
 
-    # ─── Upload exportov priamo v appke ──────────────────────────────────────
-    # Inboxy sú priečinky na serveri — na Streamlit Cloude sa do nich inak
-    # nedá nič dostať. Bez tohto by inštrukcia "nahraj exporty" nemala kam viesť.
-    st.markdown("**📤 Nahraj exporty pre vybraný portál:**")
+    st.markdown(f"### 2️⃣ Nahraj exporty pre **{sel_cfg.name}**")
+    st.caption(
+        "Voliteľný, ale odporúčaný krok — bez Ahrefs exportu témy nemajú overenú "
+        "hľadanosť (volume) a bez GSC exportu chýba obraz o tom, cez čo ťa ľudia už nachádzajú."
+    )
     up1, up2 = st.columns(2)
     with up1:
         ahrefs_uploads = st.file_uploader(
-            "Ahrefs CSV/XLSX (Keywords Explorer → Export)",
+            f"Ahrefs export pre {sel_cfg.name} (CSV/XLSX)",
             type=["csv", "xlsx"], accept_multiple_files=True, key="up_ahrefs",
+            help="Ahrefs → Keywords Explorer → vlož seed kľúčovky portálu → Matching terms → Export",
+        )
+        st.caption(
+            "**Odkiaľ:** Ahrefs → *Keywords Explorer* → vlož kľúčovky portálu "
+            "(pripravený blok na kopírovanie: **Nastavenia → Portály**) → "
+            "*Matching terms* → Country **Slovakia** → **Export CSV**."
         )
     with up2:
         gsc_uploads = st.file_uploader(
-            "GSC CSV (Výkonnosť → Vyhľadávané výrazy → Export)",
+            f"GSC export pre {sel_cfg.name} (CSV)",
             type=["csv"], accept_multiple_files=True, key="up_gsc",
+            help="Google Search Console → Výkonnosť → Vyhľadávané výrazy → 90 dní → Export",
+        )
+        st.caption(
+            f"**Odkiaľ:** Google Search Console → property **{sel_cfg.url.replace('https://', '')}** → "
+            f"*Výkonnosť* → záložka *Vyhľadávané výrazy* → rozsah **90 dní** → **Export CSV**."
         )
 
     def _save_uploads(files, base_dir, kind: str) -> list[str]:
@@ -285,6 +302,7 @@ a Reddit (ak sú nastavené prístupy). Pre plný obraz vrátane objemu hľadano
             f"teraz klikni **▶️ Spustiť pipeline**, nech sa dáta spracujú."
         )
 
+    st.markdown(f"### 3️⃣ Spusti pipeline pre **{sel_cfg.name}**")
     if st.button("▶️ Spustiť pipeline", type="primary"):
         with st.spinner(f"Pipeline beží pre {PORTALS[selected_portal].name}..."):
             try:
