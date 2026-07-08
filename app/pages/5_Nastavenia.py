@@ -87,14 +87,22 @@ try:
         from trendy.db import Portal as DbPortal, Seed
         from trendy import seeds as seeds_mod
 
-        _ORIGIN_BADGE = {"manual": "🟢 manual", "auto": "🔵 auto", "bootstrap": "⚪ bootstrap"}
-
         for pkey, pcfg in PORTALS.items():
             db_portal = db.query(DbPortal).filter_by(key=pkey).first()
             with st.expander(f"{pcfg.name}"):
                 if not db_portal:
                     st.info("Portál ešte nie je inicializovaný v DB — spusti pipeline aspoň raz.")
                     continue
+
+                # st.rerun() below wipes any message rendered in the same run — show the
+                # result of the *previous* run's refresh here, then clear it.
+                refresh_result_key = f"seed_refresh_result_{pkey}"
+                pending_result = st.session_state.pop(refresh_result_key, None)
+                if pending_result:
+                    if pending_result["status"] == "ok":
+                        st.success(f"Pridaných {pending_result['added']} nových auto seedov.")
+                    else:
+                        st.warning(f"Preskočené: {pending_result['reason']}")
 
                 seeds_mod.get_active_seeds(db_portal, db)  # bootstrap on first view if empty
                 all_seeds = (
@@ -105,10 +113,14 @@ try:
                 )
                 all_seeds.sort(key=lambda s: seeds_mod._ORIGIN_PRIORITY.get(s.origin, 3))
 
+                active_keywords = [s.keyword for s in all_seeds if s.active]
+                st.markdown("**📋 Pre Ahrefs Keywords Explorer** (skopíruj celý blok alebo jednotlivé riadky):")
+                st.code("\n".join(active_keywords) or "—", language=None)
+
                 for s in all_seeds:
                     c1, c2, c3 = st.columns([4, 1, 1])
                     with c1:
-                        st.markdown(f"`{s.keyword}` {_ORIGIN_BADGE.get(s.origin, s.origin)}")
+                        st.markdown(f"`{s.keyword}`")
                         if s.source_evidence:
                             st.caption(f"↳ {s.source_evidence}")
                     with c2:
@@ -133,10 +145,7 @@ try:
                 if st.button("🔄 Pregenerovať automatické seedy", key=f"refresh_seeds_{pkey}"):
                     with st.spinner("Analyzujem GSC / sitemap / akceptované témy..."):
                         result = seeds_mod.refresh_auto_seeds(db_portal, db)
-                    if result["status"] == "ok":
-                        st.success(f"Pridaných {result['added']} nových auto seedov.")
-                    else:
-                        st.warning(f"Preskočené: {result['reason']}")
+                    st.session_state[refresh_result_key] = result
                     st.rerun()
 
                 st.markdown("**Konkurenti (Ahrefs Site Explorer):**")

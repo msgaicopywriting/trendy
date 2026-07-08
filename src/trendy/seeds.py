@@ -1,10 +1,14 @@
-"""Seed kľúčovky per portál — dátovo odvodené (GSC, sitemap, accepted candidates,
-Ahrefs parent topics) s podporou manuálnych seedov, ktoré žiadny auto-refresh
-neprepíše. Nahrádza hardcoded `PortalConfig.seed_keywords` v config.py, ktorý
-slúži už len ako bootstrap fallback pre čerstvú/prázdnu DB."""
+"""Seed kľúčovky per portál — dátovo odvodené s podporou manuálnych seedov, ktoré
+žiadny auto-refresh neprepíše. Nahrádza hardcoded `PortalConfig.seed_keywords`
+v config.py, ktorý slúži už len ako bootstrap fallback pre čerstvú/prázdnu DB.
+
+Evidence sa zbiera od najsilnejšieho po najslabší signál a takto sa aj podáva LLM:
+GSC dopyt > schválené témy > konkurenčné medzery (keywordy konkurencie, ktoré
+nepokrývame) > naše overené Ahrefs témy > tituly článkov. LLM z toho okrem
+"coverage" seedov (čo už riešime) navrhne aj "expansion" seedy — susedné témy na
+rast, aby nástroj neostal len pri status quo existujúceho obsahu."""
 from __future__ import annotations
 
-import json
 import logging
 from datetime import date, timedelta
 
@@ -60,6 +64,21 @@ def refresh_auto_seeds(portal: Portal, db: Session) -> dict:
     if not llm_available():
         return {"status": "skipped", "reason": "LLM not available"}
 
+    # Sitemap data needs no manual export (unlike Ahrefs/GSC CSVs) — fetch it
+    # if we don't have any yet, so this button is useful even before the full
+    # pipeline has ever run for this portal.
+    has_articles = db.query(PublishedArticle).filter_by(portal_id=portal.id).first() is not None
+    if not has_articles:
+        try:
+            from trendy.sources import sitemap
+            sitemap.refresh_sitemap(portal, db, fetch_meta=True)
+        except Exception as e:
+            logger.warning("Sitemap refresh during seed refresh failed (non-fatal): %s", e)
+            # A failed insert/flush mid-transaction leaves the session unusable
+            # until rolled back — without this, the next query below raises
+            # PendingRollbackError instead of the original (harmless) error.
+            db.rollback()
+
     evidence = _collect_evidence(portal, db)
     if not any(evidence.values()):
         return {"status": "skipped", "reason": "no evidence data (GSC/sitemap/candidates all empty)"}
@@ -80,6 +99,7 @@ def refresh_auto_seeds(portal: Portal, db: Session) -> dict:
     ).delete(synchronize_session=False)
 
     added = 0
+    seen_norms: set[str] = set()
     for item in items[:15]:
         if not isinstance(item, dict):
             continue
@@ -87,15 +107,22 @@ def refresh_auto_seeds(portal: Portal, db: Session) -> dict:
         if not kw:
             continue
         norm = slugify(kw, separator=" ", lowercase=True)
-        if norm in manual_norms:
+        if norm in manual_norms or norm in seen_norms:
             continue
+        seen_norms.add(norm)
+        # Fold the coverage/expansion type into the evidence line shown in the UI,
+        # so an expansion seed is visibly flagged as a growth opportunity.
+        seed_type = (item.get("type") or "").strip().lower()
+        evidence = item.get("evidence") or ""
+        if seed_type == "expansion":
+            evidence = f"🌱 expansion — {evidence}" if evidence else "🌱 expansion"
         db.add(Seed(
             portal_id=portal.id,
             keyword=kw,
             keyword_normalized=norm,
             origin="auto",
             active=True,
-            source_evidence=json.dumps(item.get("evidence") or ""),
+            source_evidence=evidence,
         ))
         added += 1
 
@@ -134,66 +161,83 @@ def _collect_evidence(portal: Portal, db: Session) -> dict[str, list[str]]:
     )
     accepted_keywords = [f"{kw} ({cluster})" if cluster else kw for kw, cluster in accepted_rows]
 
-    ahrefs_rows = (
+    # Our own volume-verified topics (Ahrefs Keywords Explorer exports).
+    own_rows = (
         db.query(Candidate.parent_topic)
         .filter(
             Candidate.portal_id == portal.id,
-            Candidate.source.like("ahrefs%"),
+            Candidate.source.like("ahrefs_keywords%"),
             Candidate.parent_topic.isnot(None),
         )
         .order_by(Candidate.volume.desc())
         .limit(30)
         .all()
     )
-    ahrefs_topics = list(dict.fromkeys(t for (t,) in ahrefs_rows if t))
+    own_topics = list(dict.fromkeys(t for (t,) in own_rows if t))
+
+    # Competitor gap = keywords a competitor ranks for (Ahrefs Site Explorer export,
+    # source=ahrefs_competitors) that WE don't cover — no matched article. This is
+    # the forward-looking discovery signal: topics to expand into, not just mirror.
+    gap_rows = (
+        db.query(Candidate.keyword, Candidate.parent_topic)
+        .filter(
+            Candidate.portal_id == portal.id,
+            Candidate.source.like("ahrefs_competitors%"),
+            Candidate.matched_article_id.is_(None),
+        )
+        .order_by(Candidate.volume.desc())
+        .limit(40)
+        .all()
+    )
+    competitor_gaps = list(dict.fromkeys((pt or kw) for kw, pt in gap_rows if (pt or kw)))
 
     return {
         "gsc_queries": gsc_queries,
-        "article_titles": article_titles,
         "accepted_keywords": accepted_keywords,
-        "ahrefs_topics": ahrefs_topics,
+        "competitor_gaps": competitor_gaps,
+        "own_topics": own_topics,
+        "article_titles": article_titles,
     }
 
 
 def _build_prompt(portal: Portal, evidence: dict[str, list[str]]) -> str:
+    # Ordered strongest → weakest signal; the prompt tells the LLM to weight them
+    # in this order (real demand and competitor gaps beat "what we already wrote").
+    labelled = [
+        ("gsc_queries", "1. REÁLNY DOPYT — top vyhľadávané frázy (GSC, 90 dní), NAJSILNEJŠÍ signál"),
+        ("accepted_keywords", "2. SCHVÁLENÉ TÉMY — čo tím sám označil za relevantné"),
+        ("competitor_gaps", "3. KONKURENČNÉ MEDZERY — kľúčovky, na ktoré rankuje konkurencia a MY ich nepokrývame"),
+        ("own_topics", "4. NAŠE OVERENÉ TÉMY — parent topics z Ahrefs (podľa objemu)"),
+        ("article_titles", "5. EXISTUJÚCI OBSAH — nedávno publikované články (najslabší signál, len kontext)"),
+    ]
     sections = []
-    if evidence["gsc_queries"]:
-        sections.append(
-            "Top vyhľadávané frázy (GSC, posledných 90 dní):\n"
-            + "\n".join(f"- {q}" for q in evidence["gsc_queries"])
-        )
-    if evidence["article_titles"]:
-        sections.append(
-            "Nedávno publikované články:\n"
-            + "\n".join(f"- {t}" for t in evidence["article_titles"])
-        )
-    if evidence["accepted_keywords"]:
-        sections.append(
-            "Akceptované/publikované témy z pipeline:\n"
-            + "\n".join(f"- {k}" for k in evidence["accepted_keywords"])
-        )
-    if evidence["ahrefs_topics"]:
-        sections.append(
-            "Parent topics z Ahrefs (podľa objemu):\n"
-            + "\n".join(f"- {t}" for t in evidence["ahrefs_topics"])
-        )
+    for key, heading in labelled:
+        if evidence.get(key):
+            sections.append(heading + ":\n" + "\n".join(f"- {v}" for v in evidence[key]))
     evidence_text = "\n\n".join(sections)
 
     return f"""Si SEO stratég pre portál {portal.name}.
 
-Nasledujúce dáta popisujú, o čom portál reálne píše a čo ľudia hľadajú:
+Nasledujúce dáta sú zoradené od NAJSILNEJŠIEHO po najslabší signál. Váž ich v tomto
+poradí — reálny dopyt (GSC) a konkurenčné medzery majú prednosť pred tým, čo portál
+už napísal (existujúci obsah je len kontext, nie cieľ):
 
 {evidence_text}
 
-Úloha: Vydestiluj z týchto dát 10-15 ŠIROKÝCH seed kľúčových fráz (2-3 slová, hlavné
-témy, nie dlhé long-tail frázy), ktoré pokrývajú hlavné tematické okruhy portálu.
-Tieto seedy budú vstupom pre Google Trends "rising queries" analýzu, takže musia
-byť dostatočne široké/všeobecné.
+Úloha: Navrhni 10-15 ŠIROKÝCH seed kľúčových fráz (2-3 slová, hlavné témy, nie dlhé
+long-tail frázy). Budú vstupom pre Google Trends "rising queries" analýzu, takže
+musia byť dostatočne všeobecné.
 
-Pre každý seed uveď, z ktorého vstupu (GSC / články / akceptované témy / Ahrefs)
-vychádza.
+Rozlíš dva typy seedov:
+- "coverage" — jadrová téma, ktorú portál už rieši a treba ju sledovať
+- "expansion" — SUSEDNÁ téma, ktorá z dát logicky vyplýva (najmä z dopytu a
+  konkurenčných medzier), ale portál ju ešte nepokrýva — príležitosť na rast
 
-Odpovedaj IBA v JSON: [{{"keyword": "...", "evidence": "..."}}]"""
+Cieľ aspoň 3-4 "expansion" seedy, nech nástroj neostane iba pri status quo.
+
+Pre každý seed uveď type a stručne z čoho vychádza (evidence).
+
+Odpovedaj IBA v JSON: [{{"keyword": "...", "type": "coverage|expansion", "evidence": "..."}}]"""
 
 
 def add_manual_seed(portal: Portal, keyword: str, db: Session) -> Seed:

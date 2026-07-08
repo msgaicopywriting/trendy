@@ -20,6 +20,17 @@ def portal_seed(db_session):
     return p
 
 
+@pytest.fixture(autouse=True)
+def _no_real_sitemap_fetch(monkeypatch):
+    """refresh_auto_seeds opportunistically fetches the sitemap over the network
+    when a portal has no PublishedArticle rows yet — every test here starts with
+    an empty DB, so without this a plain unit test call turns into a real HTTP
+    crawl of msg-life.sk (previously ballooned a run of this file to ~98 minutes).
+    Tests that want to exercise the real fetch path override this again locally."""
+    import trendy.sources.sitemap as sitemap_mod
+    monkeypatch.setattr(sitemap_mod, "refresh_sitemap", lambda *a, **k: 0)
+
+
 def test_get_active_seeds_bootstraps_from_config(db_session, portal_seed):
     result = get_active_seeds(portal_seed, db_session)
     assert len(result) > 0
@@ -85,6 +96,75 @@ def test_refresh_dedupes_against_manual(db_session, portal_seed, monkeypatch):
     ).all()
     assert len(matches) == 1
     assert matches[0].origin == "manual"
+
+
+def test_refresh_recovers_session_after_sitemap_failure(db_session, portal_seed, monkeypatch):
+    """A failed opportunistic sitemap fetch (e.g. a DB integrity error from a
+    concurrent write) must not leave the session in a broken PendingRollbackError
+    state for the rest of refresh_auto_seeds — this crashed a real run when the
+    caught exception wasn't followed by a rollback."""
+    def _boom(portal, db, fetch_meta=True):
+        dup = dict(portal_id=portal.id, keyword="dup", keyword_normalized="dup", origin="auto", active=True)
+        db.add(Seed(**dup))
+        db.add(Seed(**dup))
+        db.commit()  # raises IntegrityError (unique constraint), leaving session dirty
+
+    import trendy.sources.sitemap as sitemap_mod
+    monkeypatch.setattr(sitemap_mod, "refresh_sitemap", _boom)
+    monkeypatch.setattr(seeds_mod, "llm_available", lambda: True)
+
+    db_session.add(GscQuery(
+        portal_id=portal_seed.id, query="test query", impressions=10,
+        export_date=date(2026, 6, 1),
+    ))
+    db_session.commit()
+
+    monkeypatch.setattr(seeds_mod, "llm_complete", lambda *a, **k: json.dumps(
+        [{"keyword": "test query", "evidence": "GSC"}]
+    ))
+
+    result = refresh_auto_seeds(portal_seed, db_session)
+    assert result["status"] == "ok"
+
+
+def test_collect_evidence_competitor_gap(db_session, portal_seed):
+    """Competitor keywords we don't cover (source=ahrefs_competitors, no matched
+    article) land in the competitor_gaps bucket; our own covered ones don't."""
+    db_session.add(Candidate(
+        portal_id=portal_seed.id, keyword="salary calculator", keyword_normalized="salary calculator",
+        parent_topic="mzdová kalkulačka", source="ahrefs_competitors", volume=800,
+        matched_article_id=None,
+    ))
+    db_session.add(Candidate(
+        portal_id=portal_seed.id, keyword="our own topic", keyword_normalized="our own topic",
+        parent_topic="náš vlastný", source="ahrefs_keywords", volume=500,
+    ))
+    db_session.commit()
+
+    evidence = seeds_mod._collect_evidence(portal_seed, db_session)
+    assert "mzdová kalkulačka" in evidence["competitor_gaps"]
+    assert "náš vlastný" in evidence["own_topics"]
+    assert "mzdová kalkulačka" not in evidence["own_topics"]
+
+
+def test_refresh_folds_expansion_type_into_evidence(db_session, portal_seed, monkeypatch):
+    db_session.add(GscQuery(
+        portal_id=portal_seed.id, query="anchor", impressions=10, export_date=date(2026, 6, 1),
+    ))
+    db_session.commit()
+
+    monkeypatch.setattr(seeds_mod, "llm_available", lambda: True)
+    monkeypatch.setattr(seeds_mod, "llm_complete", lambda *a, **k: json.dumps([
+        {"keyword": "core topic", "type": "coverage", "evidence": "GSC dopyt"},
+        {"keyword": "adjacent topic", "type": "expansion", "evidence": "konkurenčná medzera"},
+    ]))
+
+    result = refresh_auto_seeds(portal_seed, db_session)
+    assert result["status"] == "ok"
+
+    seeds = {s.keyword_normalized: s for s in db_session.query(Seed).filter_by(portal_id=portal_seed.id)}
+    assert "expansion" in seeds["adjacent topic"].source_evidence
+    assert "expansion" not in seeds["core topic"].source_evidence
 
 
 def test_add_manual_seed_promotes_existing_auto(db_session, portal_seed):
