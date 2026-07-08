@@ -242,6 +242,49 @@ a Reddit (ak sú nastavené prístupy). Pre plný obraz vrátane objemu hľadano
         key="portal_sel",
     )
 
+    # ─── Upload exportov priamo v appke ──────────────────────────────────────
+    # Inboxy sú priečinky na serveri — na Streamlit Cloude sa do nich inak
+    # nedá nič dostať. Bez tohto by inštrukcia "nahraj exporty" nemala kam viesť.
+    st.markdown("**📤 Nahraj exporty pre vybraný portál:**")
+    up1, up2 = st.columns(2)
+    with up1:
+        ahrefs_uploads = st.file_uploader(
+            "Ahrefs CSV/XLSX (Keywords Explorer → Export)",
+            type=["csv", "xlsx"], accept_multiple_files=True, key="up_ahrefs",
+        )
+    with up2:
+        gsc_uploads = st.file_uploader(
+            "GSC CSV (Výkonnosť → Vyhľadávané výrazy → Export)",
+            type=["csv"], accept_multiple_files=True, key="up_gsc",
+        )
+
+    def _save_uploads(files, base_dir, kind: str) -> list[str]:
+        from datetime import date as _date
+        saved = []
+        for f in files or []:
+            # Dedup across Streamlit reruns — the uploader re-returns the same
+            # file objects on every rerun while they sit in the widget.
+            dedup_key = f"saved_{kind}_{selected_portal}_{f.name}_{f.size}"
+            if st.session_state.get(dedup_key):
+                continue
+            target = Path(base_dir) / selected_portal
+            target.mkdir(parents=True, exist_ok=True)
+            fname = f"{_date.today().isoformat()}_{f.name}"
+            (target / fname).write_bytes(f.getvalue())
+            st.session_state[dedup_key] = True
+            saved.append(fname)
+        return saved
+
+    saved_files = (
+        _save_uploads(ahrefs_uploads, settings.ahrefs_inbox_dir, "ahrefs")
+        + _save_uploads(gsc_uploads, settings.gsc_inbox_dir, "gsc")
+    )
+    if saved_files:
+        st.success(
+            f"📥 Uložené pre **{PORTALS[selected_portal].name}**: {', '.join(saved_files)} — "
+            f"teraz klikni **▶️ Spustiť pipeline**, nech sa dáta spracujú."
+        )
+
     if st.button("▶️ Spustiť pipeline", type="primary"):
         with st.spinner(f"Pipeline beží pre {PORTALS[selected_portal].name}..."):
             try:
