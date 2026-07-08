@@ -80,10 +80,26 @@ def normalize_slug(text: str | None) -> str:
     return slugify(text, separator=" ", lowercase=True)
 
 
-def refresh_sitemap(portal: Portal, db: Session, fetch_meta: bool = True, delay: float = 0.3) -> int:
+_DEFAULT_MAX_META_FETCHES = 50
+
+
+def refresh_sitemap(
+    portal: Portal, db: Session, fetch_meta: bool = True, delay: float = 0.3,
+    max_meta_fetches: int = _DEFAULT_MAX_META_FETCHES,
+) -> int:
     """
     Scrape sitemap for portal, upsert articles into DB.
-    Returns count of articles upserted.
+
+    A large sitemap (msg-life.sk has 1400+ pages) fetching title/H1/description
+    per-page one at a time can take 20-40+ minutes — long enough that Streamlit
+    Cloud can recycle the session mid-run and leave a permanently "running"
+    pipeline row. Only the first `max_meta_fetches` pages that don't already
+    have a title get scraped per call; the rest are stored with just their URL
+    (slug derived from the path) and get their metadata backfilled on
+    subsequent runs. Every URL is always upserted, so coverage matching
+    (get_covered_slugs) still sees the full sitemap immediately.
+
+    Returns count of newly-inserted articles.
     """
     sitemap_url = urljoin(portal.url, "/sitemap.xml")
     logger.info("Refreshing sitemap for %s from %s", portal.key, sitemap_url)
@@ -92,20 +108,22 @@ def refresh_sitemap(portal: Portal, db: Session, fetch_meta: bool = True, delay:
     logger.info("Found %d URLs in sitemap for %s", len(urls), portal.key)
 
     upserted = 0
+    meta_fetches_used = 0
     for url in urls:
         # Skip non-article URLs (images, feeds, etc.)
         parsed = urlparse(url)
         if any(parsed.path.endswith(ext) for ext in (".xml", ".jpg", ".png", ".pdf", ".webp")):
             continue
 
+        existing = db.query(PublishedArticle).filter_by(portal_id=portal.id, url=url).first()
+
+        needs_meta = fetch_meta and (existing is None or not existing.title) and meta_fetches_used < max_meta_fetches
         meta = {}
-        if fetch_meta:
+        if needs_meta:
             meta = _extract_meta(url)
+            meta_fetches_used += 1
             time.sleep(delay)
 
-        slug_norm = normalize_slug(meta.get("title") or meta.get("h1") or parsed.path)
-
-        existing = db.query(PublishedArticle).filter_by(portal_id=portal.id, url=url).first()
         if existing:
             if meta.get("title"):
                 existing.title = meta["title"]
@@ -113,8 +131,10 @@ def refresh_sitemap(portal: Portal, db: Session, fetch_meta: bool = True, delay:
                 existing.h1 = meta["h1"]
             if meta.get("meta_description"):
                 existing.meta_description = meta["meta_description"]
-            existing.slug_normalized = slug_norm
+            if meta:
+                existing.slug_normalized = normalize_slug(meta.get("title") or meta.get("h1") or parsed.path)
         else:
+            slug_norm = normalize_slug(meta.get("title") or meta.get("h1") or parsed.path)
             db.add(PublishedArticle(
                 portal_id=portal.id,
                 url=url,
@@ -126,7 +146,10 @@ def refresh_sitemap(portal: Portal, db: Session, fetch_meta: bool = True, delay:
             upserted += 1
 
     db.commit()
-    logger.info("Upserted %d new articles for %s", upserted, portal.key)
+    logger.info(
+        "Upserted %d new articles for %s (%d meta fetches used)",
+        upserted, portal.key, meta_fetches_used,
+    )
     return upserted
 
 
