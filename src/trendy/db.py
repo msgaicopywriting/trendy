@@ -184,12 +184,17 @@ class SuppressedCandidate(Base):
 # Engine + session factory
 def get_engine(db_url: str | None = None):
     url = db_url or settings.database_url
-    engine = create_engine(url, connect_args={"check_same_thread": False} if "sqlite" in url else {})
+    # sqlite3's default busy timeout is 0 — any overlapping write (e.g. two
+    # Streamlit sessions/tabs hitting the DB at once) raises "database is
+    # locked" immediately instead of waiting. 30s lets SQLite retry instead.
+    connect_args = {"check_same_thread": False, "timeout": 30} if "sqlite" in url else {}
+    engine = create_engine(url, connect_args=connect_args)
     # Enable WAL mode for SQLite (better concurrent reads from Streamlit)
     if "sqlite" in url:
         @event.listens_for(engine, "connect")
         def set_wal(dbapi_conn, _):
             dbapi_conn.execute("PRAGMA journal_mode=WAL")
+            dbapi_conn.execute("PRAGMA busy_timeout=30000")
     return engine
 
 
