@@ -276,6 +276,41 @@ def set_seed_active(seed_id: int, active: bool, db: Session) -> None:
         db.commit()
 
 
+def build_context_string(portal_key: str, db: Session | None = None) -> str:
+    """Portal context pre LLM (rss_llm, llm_probe) — odvodený z aktívnych seedov.
+
+    Keď je dostupná DB, context sa zostaví priamo z aktívnych seedov, čo je
+    vždy aktuálnejšie ako hardcoded texty. Ak DB chýba alebo je prázdna,
+    padne späť na zlepšené statické opisy portálov.
+    """
+    if db is not None:
+        portal = db.query(Portal).filter_by(key=portal_key).first()
+        if portal:
+            seed_rows = db.query(Seed).filter_by(portal_id=portal.id, active=True).limit(20).all()
+            seed_kws = [s.keyword for s in seed_rows]
+            if seed_kws:
+                cfg = PORTALS.get(portal_key)
+                name = cfg.name if cfg else portal_key
+                return f"{name} — témy: {', '.join(seed_kws)}"
+
+    # Vylepšené statické opisy (žiadny insultech/poisťovníctvo pre msg-life)
+    defaults: dict[str, str] = {
+        "msg-life": (
+            "msg-life.sk — HR, employer branding, firemná kultúra, kariéra v IT, "
+            "pracovný trh, zamestnávanie, benefity, leadership, onboarding, soft skills"
+        ),
+        "msgtester": (
+            "msgtester.sk — software testing, QA engineering, test automation, "
+            "manuálne testovanie, cypress, selenium, performance testing, test management"
+        ),
+        "msgprogramator": (
+            "msgprogramator.sk — programovanie, web development, python, javascript, "
+            "react, backend, frontend, DevOps, cloud, tech kariéra"
+        ),
+    }
+    return defaults.get(portal_key, "tech and business")
+
+
 def select_seeds_for_run(seeds: list[str], run_index: int, batch: int = 5) -> list[str]:
     """
     Google Trends allows only ~5 seeds per run. With more seeds than that,

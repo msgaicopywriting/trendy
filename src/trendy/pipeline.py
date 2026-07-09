@@ -137,11 +137,11 @@ def run_pipeline(portal_key: str, db: Session | None = None) -> dict:
         # Reddit
         all_candidates.extend(reddit_fetch(portal_key))
 
-        # RSS + LLM
-        all_candidates.extend(fetch_rss_candidates(portal_key))
+        # RSS + LLM (db forwarded so LLM uses seed-derived portal context)
+        all_candidates.extend(fetch_rss_candidates(portal_key, db=db))
 
-        # LLM probing
-        all_candidates.extend(fetch_llm_probe(portal_key))
+        # LLM probing (db forwarded for seed-derived context)
+        all_candidates.extend(fetch_llm_probe(portal_key, db=db))
         all_candidates.extend(fetch_perplexity_probe(portal_key))
 
         # Google Trends "Trending Now" RSS — breakout SK searches from the last ~24-48h

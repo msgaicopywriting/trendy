@@ -15,6 +15,11 @@ from slugify import slugify
 from trendy.llm import llm_available, llm_complete, parse_json_block
 from trendy.sources.base import CandidateRow
 
+try:
+    from sqlalchemy.orm import Session as _Session
+except ImportError:
+    _Session = None  # type: ignore[assignment,misc]
+
 logger = logging.getLogger(__name__)
 
 _HEADERS = {"User-Agent": "Trendy-bot/1.0 (internal RSS reader)"}
@@ -23,11 +28,12 @@ _TIMEOUT = 15
 # RSS feeds per portal key — curated list of relevant SK/CZ/EN feeds
 PORTAL_FEEDS: dict[str, list[str]] = {
     "msg-life": [
-        "https://www.etrend.sk/rss/ekonomika.xml",
-        "https://www.hnonline.sk/rss/ekonomika",
-        "https://finweb.hnonline.sk/rss/all",
+        # HR, employer branding, kariéra — zladené s reálnym obsahom portálu
         "https://www.shrm.org/rss/hr-news.xml",
         "https://feeds.feedburner.com/ERE-Recruiting-Intelligence",
+        "https://hbr.org/topic/human-resource-management.rss",
+        "https://www.personneltoday.com/feed/",
+        "https://hrexecutive.com/feed/",
     ],
     "msgtester": [
         "https://www.ministryoftesting.com/feed",
@@ -50,10 +56,13 @@ PORTAL_FEEDS: dict[str, list[str]] = {
 MAX_AGE_DAYS = 14
 
 
-def fetch_rss_candidates(portal_key: str) -> list[CandidateRow]:
-    """
-    Fetch recent RSS items from portal feeds, extract titles as candidate keywords,
-    optionally summarize via Claude API to extract clean topic keywords.
+def fetch_rss_candidates(portal_key: str, db=None) -> list[CandidateRow]:
+    """Fetch recent RSS items from portal feeds and distil clean topic keywords via LLM.
+
+    `db` (optional SQLAlchemy Session) is forwarded to the LLM summariser so it
+    can build a portal context from active seeds instead of hardcoded descriptions.
+    Without an LLM key the function returns [] — raw titles are intentionally NOT
+    used as candidates because unfiltered article headlines make very poor SEO topics.
     """
     feeds = PORTAL_FEEDS.get(portal_key, [])
     if not feeds:
@@ -70,21 +79,12 @@ def fetch_rss_candidates(portal_key: str) -> list[CandidateRow]:
     if not raw_titles:
         return []
 
-    # Try LLM summarization to extract clean topic keywords
     if llm_available():
-        return _summarize_via_llm(raw_titles, portal_key)
-    else:
-        # Fallback: use titles directly as candidates
-        return [
-            CandidateRow(
-                keyword=item["title"],
-                keyword_normalized=slugify(item["title"], separator=" ", lowercase=True),
-                source="rss",
-                extra={"feed_url": item["feed_url"], "item_url": item.get("url")},
-            )
-            for item in raw_titles
-            if item.get("title")
-        ]
+        return _summarize_via_llm(raw_titles, portal_key, db=db)
+
+    # No LLM key — skip rather than return noisy raw titles
+    logger.info("RSS: LLM not available, skipping raw-title fallback for %s", portal_key)
+    return []
 
 
 def _parse_feed(feed_url: str) -> list[dict]:
@@ -174,20 +174,18 @@ def _clean_rss_title(title: str) -> str:
     return title
 
 
-def _summarize_via_llm(items: list[dict], portal_key: str) -> list[CandidateRow]:
+def _summarize_via_llm(items: list[dict], portal_key: str, db=None) -> list[CandidateRow]:
+    """Send batch of RSS titles to LLM to extract clean searchable topic phrases.
+
+    Uses seed-aware portal context (via `db`) so the LLM filters titles against
+    what the portal actually covers, not a static description.
     """
-    Send batch of RSS titles to the LLM to extract clean searchable topics.
-    The LLM filters noise, deduplicates similar themes, returns keyword-style topics.
-    """
+    from trendy.seeds import build_context_string  # late import — avoids circular dep
+
     titles_text = "\n".join(f"- {item['title']}" for item in items[:80])
+    portal_context = build_context_string(portal_key, db=db)
 
-    portal_context = {
-        "msg-life": "HR, employer branding, kariéra, insurtech, poisťovníctvo, Slovak market",
-        "msgtester": "software testing, QA, automatizácia testov, test engineering",
-        "msgprogramator": "programovanie, software development, tech kariéra",
-    }.get(portal_key, "tech a business")
-
-    prompt = f"""Si SEO analytik pre portál zameraný na: {portal_context}.
+    prompt = f"""Si SEO analytik pre portál: {portal_context}.
 
 Nasledujúce sú nadpisy článkov z RSS feedov za posledných 14 dní:
 
@@ -222,15 +220,6 @@ Iba JSON, žiadny iný text."""
         logger.info("RSS LLM summary: %d topic keywords for %s", len(candidates), portal_key)
         return candidates
 
-    # Parsing failed → fallback to raw titles
-    logger.error("RSS LLM summarization returned no parseable JSON — using raw titles")
-    return [
-        CandidateRow(
-            keyword=item["title"],
-            keyword_normalized=slugify(item["title"], separator=" ", lowercase=True),
-            source="rss",
-            extra={"feed_url": item.get("feed_url")},
-        )
-        for item in items
-        if item.get("title")
-    ]
+    # JSON parsing failed — return nothing rather than flooding DB with raw headlines
+    logger.error("RSS LLM summarization returned no parseable JSON — skipping")
+    return []

@@ -14,16 +14,18 @@ from trendy.sources.base import CandidateRow
 logger = logging.getLogger(__name__)
 
 
-def fetch_llm_probe(portal_key: str) -> list[CandidateRow]:
-    """
-    Ask the LLM to suggest trending / emerging topics for portal_key based on
-    its training knowledge. Best for newly emerging themes not yet in Ahrefs.
+def fetch_llm_probe(portal_key: str, db=None) -> list[CandidateRow]:
+    """Ask the LLM to suggest trending / emerging topics for portal_key.
+
+    `db` (optional SQLAlchemy Session) lets the function build a portal context
+    from active seeds rather than a hardcoded description — results improve as
+    the seed list matures from real portal data.
     """
     portal = PORTALS.get(portal_key)
     if not portal:
         return []
 
-    context = _build_portal_context(portal_key)
+    context = _build_portal_context(portal_key, db=db)
     today = date.today()
 
     prompt = f"""Si SEO expert pre portál {portal.name} ({context}).
@@ -89,7 +91,7 @@ def fetch_perplexity_probe(portal_key: str) -> list[CandidateRow]:
     if not portal:
         return []
 
-    context = _build_portal_context(portal_key)
+    context = _build_portal_context(portal_key)  # Perplexity has no DB session
 
     prompt = f"""What are the 10-15 most trending topics, technologies, and keywords in {context} right now in {date.today().strftime('%B %Y')}? Focus on Slovakia and Czech Republic market. Return as JSON: [{{"keyword": "...", "reason": "..."}}]. JSON only."""
 
@@ -133,10 +135,7 @@ def fetch_perplexity_probe(portal_key: str) -> list[CandidateRow]:
         return []
 
 
-def _build_portal_context(portal_key: str) -> str:
-    contexts = {
-        "msg-life": "HR, employer branding, kariéra, insurtech, poisťovníctvo — pre portál msg-life.sk",
-        "msgtester": "software testing, QA engineering, test automation — pre portál msgtester.sk",
-        "msgprogramator": "programovanie, software development, tech kariéra — pre portál msgprogramator.sk",
-    }
-    return contexts.get(portal_key, "tech and business content")
+def _build_portal_context(portal_key: str, db=None) -> str:
+    """Returns portal context string for LLM, preferring seed-derived description."""
+    from trendy.seeds import build_context_string  # late import — avoids circular dep
+    return build_context_string(portal_key, db=db)
