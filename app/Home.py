@@ -69,6 +69,14 @@ try:
     render_next_action(db)
     st.divider()
 
+    st.subheader("📊 Prehľad portálov")
+    st.caption(
+        "Čísla z lokálnej databázy kandidátov (napĺňa ju pipeline zo všetkých zdrojov — "
+        "Ahrefs, GSC, Google Trends, LLM, RSS, Reddit). **Aktívnych tém** = zatiaľ neposúdené "
+        "(status new/seen); **Spolu v DB** = všetci kandidáti pre portál vrátane už "
+        "prijatých/zamietnutých/publikovaných."
+    )
+
     col1, col2, col3 = st.columns(3)
     portal_keys = list(PORTALS.keys())
 
@@ -97,8 +105,14 @@ try:
                 )
 
                 m1, m2 = st.columns(2)
-                m1.metric("Aktívnych tém", new_count)
-                m2.metric("Spolu v DB", total)
+                m1.metric(
+                    "Aktívnych tém", new_count,
+                    help="Kandidáti so statusom new/seen — zatiaľ neposúdené (čakajú na prijatie/zamietnutie).",
+                )
+                m2.metric(
+                    "Spolu v DB", total,
+                    help="Všetci kandidáti, ktoré pipeline kedy našla pre tento portál — vrátane prijatých, zamietnutých aj publikovaných.",
+                )
 
                 if rising:
                     st.markdown("**🚀 Top Rising:**")
