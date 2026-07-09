@@ -213,8 +213,10 @@ def _run_migrations(engine) -> None:
     cols = {c["name"] for c in insp.get_columns("candidates")}
     if "needs_volume" not in cols:
         with engine.begin() as conn:
+            # DEFAULT FALSE (not 0) — Postgres doesn't implicitly cast integer
+            # literals to boolean in DDL; SQLite accepts the FALSE keyword too.
             conn.execute(text(
-                "ALTER TABLE candidates ADD COLUMN needs_volume BOOLEAN DEFAULT 0"
+                "ALTER TABLE candidates ADD COLUMN needs_volume BOOLEAN DEFAULT FALSE"
             ))
 
 
