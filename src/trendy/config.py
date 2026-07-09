@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,9 +12,29 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # Načítaj .env do os.environ — API kľúče (GEMINI_API_KEY, REDDIT_*, PERPLEXITY_*)
 # sa čítajú cez os.environ.get(), nie cez pydantic Settings. Bez tohto by .env
-# kľúče lokálne nefungovali. Na Streamlit Cloud .env neexistuje (load_dotenv no-op)
-# a kľúče prídu zo secrets → env.
+# kľúče lokálne nefungovali. Na Streamlit Cloud .env neexistuje (load_dotenv no-op).
 load_dotenv(ROOT / ".env")
+
+
+def _bridge_streamlit_secrets() -> None:
+    """Premietni Streamlit Cloud secrets do os.environ PRED vytvorením Settings().
+
+    Streamlit drží secrets v st.secrets a do env premenných ich kopíruje až pri
+    prvom prístupe k st.secrets — čo sa nemusí stihnúť pred importom tohto modulu.
+    Bez tohto mostíka Settings() nevidí DATABASE_URL a appka potichu spadne späť
+    na efemérny SQLite (presne to sa stalo na produkcii). Existujúce env
+    premenné neprepisujeme; mimo Streamlitu je toto no-op.
+    """
+    try:
+        import streamlit as st
+        for key, value in st.secrets.items():
+            if isinstance(value, str) and key not in os.environ:
+                os.environ[key] = value
+    except Exception:
+        pass
+
+
+_bridge_streamlit_secrets()
 
 
 class Settings(BaseSettings):
